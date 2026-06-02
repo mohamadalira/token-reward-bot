@@ -1,23 +1,23 @@
-FROM node:20-alpine AS base
-
-FROM base AS deps
+FROM node:20-alpine AS deps
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm install
+COPY package.json ./
+RUN npm install --no-audit --no-fund --loglevel=info --prefer-offline
 
-FROM base AS builder
+FROM node:20-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_API_URL=https://example.com/api
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-RUN npm run build
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_OPTIONS="--max-old-space-size=1536"
+RUN echo ">>> Next.js build started (may take 15-30 min on weak VPS)..." && npm run build
 
-FROM base AS runner
+FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static

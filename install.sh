@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-INSTALLER_VERSION="2.1.2"
+INSTALLER_VERSION="2.2.0"
+BUILD_MINIAPP="${BUILD_MINIAPP:-}"
 RAW_INSTALL_URL="https://raw.githubusercontent.com/mohamadalira/token-reward-bot/main/install.sh"
 
 # curl | bash: stdin is the pipe — read would consume script lines (broken prompts).
@@ -358,8 +359,67 @@ USE_JALALI_DATES=true
 EOF
 chmod 600 .env
 
+ensure_swap() {
+    local mem_mb
+    mem_mb=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}' || echo 4096)
+    if [[ "$mem_mb" -lt 2048 ]] && [[ ! -f /swapfile ]]; then
+        info "RAM kam — sakht 2GB swap (yek bar)..."
+        fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048
+        chmod 600 /swapfile
+        mkswap /swapfile
+        swapon /swapfile
+        grep -q '/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+    fi
+}
+
+nginx_root_location() {
+    if [[ "${BUILD_MINIAPP}" == "1" ]]; then
+        cat <<'NGINX'
+    location / {
+        proxy_pass http://mini-app:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+NGINX
+    else
+        cat <<'NGINX'
+    location / {
+        root /usr/share/nginx/html;
+        try_files $uri /index.html;
+    }
+NGINX
+    fi
+}
+
+build_docker_images() {
+    export DOCKER_BUILDKIT=1
+    export COMPOSE_HTTP_TIMEOUT=600
+    ensure_swap
+
+    info "=== Build backend (2-5 daghighe) ==="
+    docker compose build --progress=plain backend
+
+    if [[ "${BUILD_MINIAPP}" == "1" ]]; then
+        info "=== Build mini-app (15-30 daghighe — sabr kon, giro normal nist) ==="
+        docker compose --profile miniapp build --progress=plain mini-app
+    else
+        warn "Mini App build skip shod — faghat bot va API"
+    fi
+}
+
+compose_up() {
+    if [[ "${BUILD_MINIAPP}" == "1" ]]; then
+        docker compose --profile miniapp up -d "$@"
+    else
+        docker compose up -d "$@"
+    fi
+}
+
 # ─── Nginx config generators ────────────────────────────────
-mkdir -p nginx/conf.d
+mkdir -p nginx/conf.d nginx/html
 
 write_nginx_http() {
     cat > nginx/conf.d/default.conf <<NGINX
@@ -389,14 +449,7 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
 
-    location / {
-        proxy_pass http://mini-app:3000;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
+$(nginx_root_location)
 }
 NGINX
 }
@@ -446,27 +499,27 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
 
-    location / {
-        proxy_pass http://mini-app:3000;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
+$(nginx_root_location)
 }
 NGINX
 }
 
+read_tty _BUILD_MINI "Build Mini App? (15-30 min, server weak) (y/n) [n]: "
+_BUILD_MINI="${_BUILD_MINI:-n}"
+if [[ "$_BUILD_MINI" == "y" || "$_BUILD_MINI" == "Y" ]]; then
+    BUILD_MINIAPP=1
+else
+    BUILD_MINIAPP=0
+fi
+
 write_nginx_http
-log "Nginx (HTTP) آماده شد"
+log "Nginx (HTTP) amade shod"
 
 # ─── Build & start core services ──────────────────────────────
-log "ساخت Docker images..."
-docker compose build --quiet 2>/dev/null || docker compose build
+build_docker_images
 
-log "راه‌اندازی PostgreSQL و Redis..."
-docker compose up -d postgres redis
+log "rahandazi PostgreSQL va Redis..."
+compose_up postgres redis
 
 info "منتظر آماده شدن دیتابیس..."
 for i in $(seq 1 30); do
@@ -476,12 +529,16 @@ for i in $(seq 1 30); do
     sleep 2
 done
 
-log "راه‌اندازی Backend و Mini App..."
-docker compose up -d backend mini-app
+log "rahandazi Backend..."
+compose_up backend
+if [[ "${BUILD_MINIAPP}" == "1" ]]; then
+    log "rahandazi Mini App..."
+    compose_up mini-app
+fi
 
 log "rahandazi Nginx (HTTP)..."
 free_web_ports
-docker compose up -d nginx
+compose_up nginx
 
 # ─── SSL with Certbot ─────────────────────────────────────────
 log "دریافت SSL از Let's Encrypt (Certbot)..."
@@ -511,7 +568,7 @@ fi
 
 # ─── Start certbot renew + remaining services ───────────────
 log "راه‌اندازی Certbot (تمدید خودکار)..."
-docker compose up -d certbot
+compose_up certbot
 
 # ─── Systemd service ──────────────────────────────────────────
 log "ساخت سرویس systemd..."

@@ -53,6 +53,7 @@ services:
       - tokenbot_network
 
   mini-app:
+    profiles: ["miniapp"]
     build:
       context: ./mini-app
       dockerfile: Dockerfile
@@ -77,11 +78,11 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/html:/usr/share/nginx/html:ro
       - certbot_conf:/etc/letsencrypt
       - certbot_www:/var/www/certbot
     depends_on:
       - backend
-      - mini-app
     networks:
       - tokenbot_network
 
