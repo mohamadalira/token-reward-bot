@@ -32,7 +32,7 @@
 ## نصب سریع (Ubuntu 22.04+)
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/YOUR_REPO/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/mohamadalira/token-reward-bot/main/install.sh | bash
 ```
 
 اسکریپت از شما می‌پرسد:
