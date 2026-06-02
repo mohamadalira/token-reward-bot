@@ -4,6 +4,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
+from aiogram.types import ErrorEvent
 
 from app.bot.handlers.admin.panel import router as admin_router
 from app.bot.handlers.sponsor.panel import router as sponsor_router
@@ -31,5 +32,13 @@ def create_bot() -> tuple[Bot, Dispatcher]:
     dp.include_router(admin_router)
     dp.include_router(sponsor_router)
     dp.include_router(user_router)
+
+    @dp.errors()
+    async def on_error(event: ErrorEvent):
+        logger.exception(
+            "Handler error update=%s: %s",
+            getattr(event.update, "update_id", "?"),
+            event.exception,
+        )
 
     return bot, dp

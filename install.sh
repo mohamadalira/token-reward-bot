@@ -204,7 +204,33 @@ server {
     server_name ${listen_name};
 
     location /api/ {
-        proxy_pass http://backend:8000/;
+        proxy_pass http://backend:8000/api/;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    location /webhook/ {
+        proxy_pass http://backend:8000/webhook/;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+    }
+
+    location / {
+        root /usr/share/nginx/html;
+        try_files \$uri \$uri/ /index.html;
+    }
+}
+NGINX
+  if [[ "${BUILD_MINIAPP:-0}" == "1" ]]; then
+    cat > nginx/conf.d/tokenbot.conf <<NGINX
+server {
+    listen 80;
+    server_name ${listen_name};
+
+    location /api/ {
+        proxy_pass http://backend:8000/api/;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -227,6 +253,7 @@ server {
     }
 }
 NGINX
+  fi
 }
 
 write_nginx_with_ssl() {
@@ -253,7 +280,50 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
 
     location /api/ {
-        proxy_pass http://backend:8000/;
+        proxy_pass http://backend:8000/api/;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    location /webhook/ {
+        proxy_pass http://backend:8000/webhook/;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+    }
+
+    location / {
+        root /usr/share/nginx/html;
+        try_files \$uri \$uri/ /index.html;
+    }
+}
+NGINX
+  if [[ "${BUILD_MINIAPP:-0}" == "1" ]]; then
+    cat > nginx/conf.d/tokenbot.conf <<NGINX
+server {
+    listen 80;
+    server_name ${DOMAIN};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://\$host\$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    server_name ${DOMAIN};
+
+    ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    location /api/ {
+        proxy_pass http://backend:8000/api/;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -276,6 +346,7 @@ server {
     }
 }
 NGINX
+  fi
 }
 
 generate_env() {

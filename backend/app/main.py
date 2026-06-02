@@ -44,8 +44,11 @@ async def setup_defaults():
 
 
 async def run_bot(bot: Bot, dp):
-    logger.info("Starting Telegram bot polling...")
-    await dp.start_polling(bot)
+    # Webhook blocks polling — clear it (common after BotFather / other panels)
+    await bot.delete_webhook(drop_pending_updates=True)
+    me = await bot.get_me()
+    logger.info("Telegram bot @%s (id=%s) — polling started", me.username, me.id)
+    await dp.start_polling(bot, handle_signals=False)
 
 
 async def main():
