@@ -6,15 +6,15 @@ INSTALL_DIR="${INSTALL_DIR:-/opt/tokenbot}"
 cd "$INSTALL_DIR" || { echo "Install dir not found: $INSTALL_DIR"; exit 1; }
 
 read_tty() {
-  local var="$1"
-  local prompt="$2"
-  local val
-  if [[ -t 0 ]]; then
-    read -r -p "$prompt" val </dev/tty
+  local __name="$1"
+  local __prompt="$2"
+  local __buf=""
+  if [[ -r /dev/tty ]]; then
+    read -r -p "$__prompt" __buf </dev/tty
   else
-    read -r -p "$prompt" val </dev/tty
+    read -r -p "$__prompt" __buf
   fi
-  printf -v "$var" '%s' "$val"
+  printf -v "$__name" '%s' "$__buf"
 }
 
 port_in_use() {

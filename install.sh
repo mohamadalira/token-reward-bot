@@ -3,7 +3,7 @@
 # Version: 2.3.0
 set -euo pipefail
 
-INSTALLER_VERSION="2.3.0"
+INSTALLER_VERSION="2.3.1"
 INSTALL_DIR="/opt/tokenbot"
 REPO="mohamadalira/token-reward-bot"
 REPO_URL="https://github.com/${REPO}.git"
@@ -24,22 +24,25 @@ warn() { echo -e "\033[1;33m[WARN]\033[0m  $*"; }
 err()  { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; }
 
 read_tty() {
-  local var="$1"
-  local prompt="$2"
-  local val
-  read -r -p "$prompt" val </dev/tty
-  printf -v "$var" '%s' "$val"
+  # Use __buf — NOT "val" — so prompt_required's variable name is not shadowed
+  local __name="$1"
+  local __prompt="$2"
+  local __buf=""
+  if [[ -r /dev/tty ]]; then
+    read -r -p "$__prompt" __buf </dev/tty
+  else
+    read -r -p "$__prompt" __buf
+  fi
+  printf -v "$__name" '%s' "$__buf"
 }
 
 prompt_required() {
-  local var="$1"
-  local prompt="$2"
-  local val=""
-  while [[ -z "$val" ]]; do
-    read_tty val "$prompt"
-    [[ -z "$val" ]] && warn "This field is required."
+  local __name="$1"
+  local __prompt="$2"
+  while [[ -z "${!__name}" ]]; do
+    read_tty "$__name" "$__prompt"
+    [[ -z "${!__name}" ]] && warn "This field is required."
   done
-  printf -v "$var" '%s' "$val"
 }
 
 port_in_use() {
