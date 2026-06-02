@@ -1,13 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+INSTALLER_VERSION="2.1.0"
+RAW_INSTALL_URL="https://raw.githubusercontent.com/mohamadalira/token-reward-bot/main/install.sh"
+
+# curl | bash: stdin is the pipe — read would consume script lines (broken prompts).
+# Re-download full script and re-run with terminal keyboard input.
+if [[ -p /dev/stdin ]]; then
+    command -v curl &>/dev/null || { apt-get update -qq && apt-get install -y -qq curl; }
+    _INSTALL_TMP="$(mktemp /tmp/tokenbot-install.XXXXXX.sh)"
+    curl -fsSL "$RAW_INSTALL_URL" -o "$_INSTALL_TMP" || {
+        echo "Download failed. Run:"
+        echo "  curl -sSL $RAW_INSTALL_URL -o install.sh && sudo bash install.sh"
+        exit 1
+    }
+    chmod +x "$_INSTALL_TMP"
+    export INSTALL_FROM_PIPE=1
+    exec bash "$_INSTALL_TMP" </dev/tty
+fi
+
 # Token Reward Bot - Ubuntu 22.04+ Installer
 # Usage (recommended - download first):
 #   curl -sSL https://raw.githubusercontent.com/mohamadalira/token-reward-bot/main/install.sh -o install.sh
 #   sed -i 's/\r$//' install.sh
 #   chmod +x install.sh && sudo bash install.sh
 #
-# Or pipe (may fail on some shells):
+# Or one-liner pipe (auto re-downloads script):
 #   curl -sSL https://raw.githubusercontent.com/mohamadalira/token-reward-bot/main/install.sh | sudo bash
 
 RED='\033[0;31m'
@@ -45,14 +63,20 @@ read_tty() {
     fi
 }
 
+fresh_install() {
+    local dir="$1"
+    log "Pak kardan nasb ghabli..."
+    systemctl stop tokenbot.service 2>/dev/null || true
+    if command -v docker &>/dev/null && [[ -f "${dir}/docker-compose.yml" ]]; then
+        (cd "$dir" && docker compose down --remove-orphans 2>/dev/null) || true
+    fi
+    rm -rf "$dir"
+}
+
 clone_project() {
     local target="$1"
 
-    if [[ -f "$target/docker-compose.yml" ]]; then
-        return 0
-    fi
-
-    log "دریافت پروژه از GitHub (${GITHUB_REPO})..."
+    log "dar hal daryaft proje az GitHub (${GITHUB_REPO})..."
     mkdir -p "$target"
 
     # Public repo: download archive (no git, no password)
@@ -126,7 +150,8 @@ echo "╔═══════════════════════�
 echo "║     Token Reward Bot — نصب خودکار       ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
-info "همه تنظیمات رو ازت می‌پرسم. Enter = مقدار پیش‌فرض"
+info "Installer v${INSTALLER_VERSION}"
+info "hame tanzimat ro miporsam. Enter = pishfarz"
 echo ""
 
 # ─── Interactive configuration ────────────────────────────────
@@ -173,12 +198,27 @@ CONFIRM="${CONFIRM:-y}"
 # ─── Detect install directory ─────────────────────────────────
 SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" 2>/dev/null && pwd || echo "")"
+INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 
-if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/docker-compose.yml" ]]; then
+# Always fresh install when run via curl | bash
+if [[ -n "${INSTALL_FROM_PIPE:-}" ]]; then
+    fresh_install "$INSTALL_DIR"
+    apt-get update -qq
+    apt-get install -y -qq curl ca-certificates tar
+    clone_project "$INSTALL_DIR"
+elif [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/docker-compose.yml" ]]; then
     INSTALL_DIR="$SCRIPT_DIR"
-    log "استفاده از فایل‌های محلی: $INSTALL_DIR"
+    log "estefade az file haye mahali: $INSTALL_DIR"
+    read_tty _FRESH "Nasb az aval? hame container ha pak shavad (y/n) [y]: "
+    _FRESH="${_FRESH:-y}"
+    if [[ "$_FRESH" == "y" || "$_FRESH" == "Y" ]]; then
+        fresh_install "$INSTALL_DIR"
+        apt-get update -qq
+        apt-get install -y -qq curl ca-certificates tar
+        clone_project "$INSTALL_DIR"
+    fi
 else
-    INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
+    fresh_install "$INSTALL_DIR"
     apt-get update -qq
     apt-get install -y -qq curl ca-certificates tar
     clone_project "$INSTALL_DIR"
