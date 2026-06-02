@@ -35,14 +35,36 @@
 curl -sSL https://raw.githubusercontent.com/mohamadalira/token-reward-bot/main/install.sh | sudo bash
 ```
 
-اسکریپت از شما می‌پرسد:
+### هم‌زیستی با ربات‌های دیگر
+
+- **هیچ سرویس دیگری متوقف نمی‌شود** (Apache، Nginx سیستم، کانتینرهای دیگر دست نخورده می‌مانند).
+- فقط کانتینرهای `tokenbot_*` قبلی پاک می‌شوند.
+- پورت پیش‌فرض **8080** است (نه 80/443) تا با ربات‌های روی 80 تداخل نداشته باشد.
+- اگر 80/443 آزاد باشد و دامنه بدهید، می‌توانید همان پورت‌ها را انتخاب کنید.
+
+### نصب بدون دامنه
+
+در پرامپت Domain **Enter** بزنید. ربات با polling کار می‌کند؛ وب و Mini App روی:
+
+`http://IP_SERVER:8080`
+
+دامنه و SSL بعداً:
+
+```bash
+cd /opt/tokenbot && sudo bash scripts/add-domain.sh
+```
+
+### ورودی‌های نصب
+
 - Telegram Bot Token
 - Admin Telegram ID
-- PostgreSQL / Redis Password (خودکار تولید می‌شود اگر خالی بگذارید)
-- Domain + SSL Email
-- Plisio API Token (فقط یک توکن — Secret جدا لازم نیست)
+- **Domain** (اختیاری — خالی = فقط IP:PORT)
+- Plisio API Token (اختیاری)
+- ساخت Mini App (اختیاری در حالت بدون دامنه)
 
-Webhook و WebApp URL خودکار از دامنه ساخته می‌شوند. SSL با Certbot خودکار گرفته می‌شود.
+> **SSL:** برای Let's Encrypt معمولاً پورت **80** باید به چالش ACME برسد. اگر Apache روی 80 است، اول بدون دامنه نصب کنید یا `/.well-known` را در Apache به این ربات پروکسی کنید.
+
+Webhook و WebApp URL خودکار ساخته می‌شوند.
 
 ## نصب دستی (Docker)
 
@@ -71,6 +93,10 @@ docker compose logs -f backend
 | `POSTGRES_PASSWORD` | رمز PostgreSQL |
 | `REDIS_PASSWORD` | رمز Redis |
 | `WEBAPP_URL` | آدرس Mini App |
+| `TOKENBOT_HTTP_PORT` | پورت HTTP روی سرور (پیش‌فرض 8080) |
+| `TOKENBOT_HTTPS_PORT` | پورت HTTPS (پیش‌فرض 8443 یا 443) |
+| `DOMAIN` | دامنه (اختیاری) |
+| `SSL_ENABLED` | true/false |
 | `PLISIO_API_KEY` | API Token پلیسیو (فقط همین کافیه) |
 | `PLISIO_SECRET_KEY` | اختیاری — اگر خالی باشد همان API Token استفاده می‌شود |
 | `WEBHOOK_URL` | URL webhook پرداخت |

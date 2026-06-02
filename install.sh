@@ -1,441 +1,149 @@
 #!/usr/bin/env bash
+# Token Reward Bot — one-click installer (safe co-existence with other bots)
+# Version: 2.3.0
 set -euo pipefail
 
-INSTALLER_VERSION="2.2.0"
-BUILD_MINIAPP="${BUILD_MINIAPP:-}"
-RAW_INSTALL_URL="https://raw.githubusercontent.com/mohamadalira/token-reward-bot/main/install.sh"
+INSTALLER_VERSION="2.3.0"
+INSTALL_DIR="/opt/tokenbot"
+REPO="mohamadalira/token-reward-bot"
+REPO_URL="https://github.com/${REPO}.git"
+TARBALL_URL="https://github.com/${REPO}/archive/refs/heads/main.tar.gz"
 
-# curl | bash: stdin is the pipe — read would consume script lines (broken prompts).
-# Re-download full script and re-run with terminal keyboard input.
-if [[ -p /dev/stdin ]]; then
-    command -v curl &>/dev/null || { apt-get update -qq && apt-get install -y -qq curl; }
-    _INSTALL_TMP="$(mktemp /tmp/tokenbot-install.XXXXXX.sh)"
-    curl -fsSL "$RAW_INSTALL_URL" -o "$_INSTALL_TMP" || {
-        echo "Download failed. Run:"
-        echo "  curl -sSL $RAW_INSTALL_URL -o install.sh && sudo bash install.sh"
-        exit 1
-    }
-    chmod +x "$_INSTALL_TMP"
-    export INSTALL_FROM_PIPE=1
-    exec bash "$_INSTALL_TMP" </dev/tty
+# ── Re-exec when piped (curl | bash) ────────────────────────────────────────
+if [[ ! -t 0 ]] && [[ -z "${TOKENBOT_INSTALL_REEXEC:-}" ]]; then
+  export TOKENBOT_INSTALL_REEXEC=1
+  TMP_SCRIPT="$(mktemp /tmp/tokenbot-install.XXXXXX.sh)"
+  curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/install.sh" -o "$TMP_SCRIPT"
+  chmod +x "$TMP_SCRIPT"
+  exec bash "$TMP_SCRIPT" "$@" </dev/tty
 fi
 
-# Token Reward Bot - Ubuntu 22.04+ Installer
-# Usage (recommended - download first):
-#   curl -sSL https://raw.githubusercontent.com/mohamadalira/token-reward-bot/main/install.sh -o install.sh
-#   sed -i 's/\r$//' install.sh
-#   chmod +x install.sh && sudo bash install.sh
-#
-# Or one-liner pipe (auto re-downloads script):
-#   curl -sSL https://raw.githubusercontent.com/mohamadalira/token-reward-bot/main/install.sh | sudo bash
+# ── Helpers ───────────────────────────────────────────────────────────────────
+log()  { echo -e "\033[1;32m[INFO]\033[0m  $*"; }
+warn() { echo -e "\033[1;33m[WARN]\033[0m  $*"; }
+err()  { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; }
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-DEFAULT_INSTALL_DIR="/opt/tokenbot"
-GITHUB_REPO="${GITHUB_REPO:-mohamadalira/token-reward-bot}"
-GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
-REPO_URL="${REPO_URL:-https://github.com/${GITHUB_REPO}.git}"
-
-TTY="/dev/tty"
-
-log()  { echo -e "${GREEN}[OK]${NC} $1"; }
-warn() { echo -e "${YELLOW}[!]${NC} $1"; }
-info() { echo -e "${BLUE}[i]${NC} $1"; }
-err()  { echo -e "${RED}[X]${NC} $1"; exit 1; }
-
-# read from terminal (NOT stdin) — required when script is piped: curl | bash
 read_tty() {
-    local var_name="$1"
-    local prompt="$2"
-    local secret="${3:-false}"
-    if [[ ! -r "$TTY" ]]; then
-        err "Terminal peida nashod. Script ro download kon va ejra kon:
-  curl -sSL .../install.sh -o install.sh && sudo bash install.sh"
-    fi
-    if [[ "$secret" == "true" ]]; then
-        read -rsp "$prompt" "$var_name" <"$TTY"
-        echo
-    else
-        read -rp "$prompt" "$var_name" <"$TTY"
-    fi
-}
-
-fresh_install() {
-    local dir="$1"
-    log "Pak kardan nasb ghabli..."
-    systemctl stop tokenbot.service 2>/dev/null || true
-    docker rm -f tokenbot_backend tokenbot_miniapp tokenbot_nginx tokenbot_postgres tokenbot_redis tokenbot_certbot 2>/dev/null || true
-    if command -v docker &>/dev/null && [[ -f "${dir}/docker-compose.yml" ]]; then
-        (cd "$dir" && docker compose down --remove-orphans 2>/dev/null) || true
-    fi
-    free_web_ports
-    fuser -k 8000/tcp 2>/dev/null || true
-    fuser -k 3000/tcp 2>/dev/null || true
-    rm -rf "$dir"
-}
-
-free_web_ports() {
-    log "Azad kardan port 80 va 443..."
-
-    for svc in nginx apache2 apache caddy lighttpd httpd; do
-        systemctl stop "$svc" 2>/dev/null || true
-        systemctl disable "$svc" 2>/dev/null || true
-    done
-
-    # Other Docker containers on 80/443
-    local cid
-    for cid in $(docker ps -q 2>/dev/null); do
-        if docker port "$cid" 2>/dev/null | grep -qE ':(80|443)->'; then
-            warn "Stopping container $cid (uses port 80/443)"
-            docker rm -f "$cid" 2>/dev/null || true
-        fi
-    done
-
-    apt-get install -y -qq psmisc 2>/dev/null || true
-
-    if command -v ss &>/dev/null; then
-        if ss -tlnp 2>/dev/null | grep -qE ':80\s'; then
-            warn "Port 80 occupied — killing process..."
-            ss -tlnp 2>/dev/null | grep ':80 ' || true
-        fi
-    fi
-
-    fuser -k 80/tcp 2>/dev/null || true
-    fuser -k 443/tcp 2>/dev/null || true
-    sleep 2
-}
-
-clone_project() {
-    local target="$1"
-
-    log "dar hal daryaft proje az GitHub (${GITHUB_REPO})..."
-    mkdir -p "$target"
-
-    # Public repo: download archive (no git, no password)
-    local tarball="https://github.com/${GITHUB_REPO}/archive/refs/heads/${GITHUB_BRANCH}.tar.gz"
-    if curl -fsSL "$tarball" | tar xz -C "$target" --strip-components=1 2>/dev/null; then
-        log "proje download shod"
-        return 0
-    fi
-
-    # Private repo: git clone with optional token
-    apt-get install -y -qq git
-    export GIT_TERMINAL_PROMPT=0
-
-    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-        if git clone --depth 1 -b "$GITHUB_BRANCH" \
-            "https://${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git" "$target" 2>/dev/null; then
-            log "proje clone shod (ba token)"
-            return 0
-        fi
-    fi
-
-    if git clone --depth 1 -b "$GITHUB_BRANCH" "$REPO_URL" "$target" 2>/dev/null; then
-        log "proje clone shod"
-        return 0
-    fi
-
-    err "Clone failed. Make repo Public or set GITHUB_TOKEN, or copy files to /opt/tokenbot manually."
-}
-
-prompt() {
-    local var_name="$1"
-    local message="$2"
-    local default="${3:-}"
-    local secret="${4:-false}"
-    local value=""
-
-    if [[ -n "$default" ]]; then
-        read_tty value "${message} [${default}]: " "$secret"
-    else
-        read_tty value "${message}: " "$secret"
-    fi
-
-    if [[ -z "$value" ]]; then
-        value="$default"
-    fi
-    printf -v "$var_name" '%s' "$value"
+  local var="$1"
+  local prompt="$2"
+  local val
+  read -r -p "$prompt" val </dev/tty
+  printf -v "$var" '%s' "$val"
 }
 
 prompt_required() {
-    local var_name="$1"
-    local message="$2"
-    local value=""
-    while [[ -z "$value" ]]; do
-        read_tty value "${message}: "
-        [[ -z "$value" ]] && warn "in field ejbarie"
-    done
-    printf -v "$var_name" '%s' "$value"
+  local var="$1"
+  local prompt="$2"
+  local val=""
+  while [[ -z "$val" ]]; do
+    read_tty val "$prompt"
+    [[ -z "$val" ]] && warn "This field is required."
+  done
+  printf -v "$var" '%s' "$val"
 }
 
-generate_password() {
-    openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | head -c 32
+port_in_use() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -tlnH 2>/dev/null | awk -v p=":${port}" '$4 ~ p {found=1} END {exit !found}'
+  elif command -v netstat >/dev/null 2>&1; then
+    netstat -tln 2>/dev/null | grep -q ":${port} "
+  else
+    return 1
+  fi
 }
 
-# ─── Root check ───────────────────────────────────────────────
-if [[ $EUID -ne 0 ]]; then
-    err "اسکریپت رو با sudo اجرا کن:\n  curl -sSL install.sh | sudo bash"
-fi
+find_free_port() {
+  local start="${1:-8080}"
+  local port="$start"
+  while port_in_use "$port"; do
+    port=$((port + 1))
+  done
+  echo "$port"
+}
 
-echo ""
-echo "╔══════════════════════════════════════════╗"
-echo "║     Token Reward Bot — نصب خودکار       ║"
-echo "╚══════════════════════════════════════════╝"
-echo ""
-info "Installer v${INSTALLER_VERSION}"
-info "hame tanzimat ro miporsam. Enter = pishfarz"
-echo ""
+detect_public_ip() {
+  curl -4 -fsS --max-time 5 ifconfig.me 2>/dev/null \
+    || curl -4 -fsS --max-time 5 icanhazip.com 2>/dev/null \
+    || hostname -I 2>/dev/null | awk '{print $1}' \
+    || echo "127.0.0.1"
+}
 
-# ─── Interactive configuration ────────────────────────────────
-prompt_required BOT_TOKEN "🤖 Telegram Bot Token"
-prompt_required ADMIN_IDS  "👤 Admin Telegram ID (چندتا با , جدا کن)"
-
-AUTO_PG_PASS="$(generate_password)"
-prompt POSTGRES_PASSWORD "🗄 PostgreSQL Password (خالی=خودکار)" "$AUTO_PG_PASS" true
-[[ -z "$POSTGRES_PASSWORD" ]] && POSTGRES_PASSWORD="$AUTO_PG_PASS"
-
-AUTO_REDIS_PASS="$(generate_password)"
-prompt REDIS_PASSWORD "🔴 Redis Password (خالی=خودکار)" "$AUTO_REDIS_PASS" true
-[[ -z "$REDIS_PASSWORD" ]] && REDIS_PASSWORD="$AUTO_REDIS_PASS"
-
-prompt_required DOMAIN "🌐 Domain (مثال: bot.example.com)"
-prompt_required SSL_EMAIL "📧 Email برای SSL (Certbot)"
-
-read_tty PLISIO_API_KEY "Plisio API Token (khali=ghayrefaal): "
-PLISIO_ENABLED="false"
-if [ -n "${PLISIO_API_KEY}" ]; then
-    PLISIO_ENABLED="true"
-    info "Plisio faal shod - hamin token baraye API va Webhook"
-fi
-if [ "${PLISIO_ENABLED}" = "false" ]; then
-    warn "Plisio gheyrefaal - baad az panel admin faalesh kon"
-fi
-
-# Auto-generated values
-API_SECRET_KEY="$(openssl rand -hex 32)"
-WEBAPP_URL="https://${DOMAIN}"
-WEBHOOK_URL="https://${DOMAIN}/webhook/plisio"
-
-echo ""
-info "── خلاصه تنظیمات ──"
-echo "  Domain:    $DOMAIN"
-echo "  WebApp:    $WEBAPP_URL"
-echo "  Webhook:   $WEBHOOK_URL"
-echo "  Plisio:    $PLISIO_ENABLED"
-echo ""
-read_tty CONFIRM "Edame nasb? (y/n) [y]: "
-CONFIRM="${CONFIRM:-y}"
-[[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" && -n "$CONFIRM" ]] && err "nasb laghv shod"
-
-# ─── Detect install directory ─────────────────────────────────
-SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
-SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" 2>/dev/null && pwd || echo "")"
-INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
-
-# Always fresh install when run via curl | bash
-if [[ -n "${INSTALL_FROM_PIPE:-}" ]]; then
-    fresh_install "$INSTALL_DIR"
-    apt-get update -qq
-    apt-get install -y -qq curl ca-certificates tar
-    clone_project "$INSTALL_DIR"
-elif [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/docker-compose.yml" ]]; then
-    INSTALL_DIR="$SCRIPT_DIR"
-    log "estefade az file haye mahali: $INSTALL_DIR"
-    read_tty _FRESH "Nasb az aval? hame container ha pak shavad (y/n) [y]: "
-    _FRESH="${_FRESH:-y}"
-    if [[ "$_FRESH" == "y" || "$_FRESH" == "Y" ]]; then
-        fresh_install "$INSTALL_DIR"
-        apt-get update -qq
-        apt-get install -y -qq curl ca-certificates tar
-        clone_project "$INSTALL_DIR"
+pick_http_port() {
+  # Never steal 80/443 from other services — prefer high ports
+  for p in 8080 8081 8090 8888 9080 8181; do
+    if ! port_in_use "$p"; then
+      echo "$p"
+      return
     fi
-else
-    fresh_install "$INSTALL_DIR"
-    apt-get update -qq
-    apt-get install -y -qq curl ca-certificates tar
-    clone_project "$INSTALL_DIR"
-fi
+  done
+  find_free_port 9000
+}
 
-cd "$INSTALL_DIR"
+require_root() {
+  if [[ $EUID -ne 0 ]]; then
+    err "Run as root: sudo bash install.sh"
+    exit 1
+  fi
+}
 
-# ─── Install system dependencies ──────────────────────────────
-log "آپدیت سیستم..."
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get upgrade -y -qq
-
-log "نصب ابزارهای مورد نیاز..."
-apt-get install -y -qq \
-    curl \
-    wget \
-    git \
-    ufw \
-    openssl \
-    ca-certificates \
-    gnupg \
-    lsb-release \
-    apt-transport-https \
-    software-properties-common
-
-# Docker
-if ! command -v docker &>/dev/null; then
-    log "نصب Docker..."
-    install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-    chmod a+r /etc/apt/keyrings/docker.asc
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
-https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
-        > /etc/apt/sources.list.d/docker.list
-    apt-get update -qq
-    apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin
-    systemctl enable docker
-    systemctl start docker
-else
-    log "Docker از قبل نصبه"
-fi
-
-if ! docker compose version &>/dev/null; then
-    err "Docker Compose Plugin پیدا نشد"
-fi
-
-# ─── Firewall ─────────────────────────────────────────────────
-log "تنظیم فایروال (UFW)..."
-ufw --force reset >/dev/null 2>&1 || true
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow 22/tcp comment 'SSH'
-ufw allow 80/tcp comment 'HTTP'
-ufw allow 443/tcp comment 'HTTPS'
-ufw --force enable
-
-# ─── Write .env ───────────────────────────────────────────────
-log "ساخت فایل .env..."
-cat > .env <<EOF
-# Generated by install.sh on $(date -Iseconds)
-
-# Telegram
-BOT_TOKEN=${BOT_TOKEN}
-ADMIN_IDS=${ADMIN_IDS}
-WEBAPP_URL=${WEBAPP_URL}
-
-# Database
-POSTGRES_HOST=postgres
-POSTGRES_PORT=5432
-POSTGRES_DB=tokenbot
-POSTGRES_USER=tokenbot
-POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-
-# Redis
-REDIS_HOST=redis
-REDIS_PORT=6379
-REDIS_PASSWORD=${REDIS_PASSWORD}
-
-# API
-API_HOST=0.0.0.0
-API_PORT=8000
-API_SECRET_KEY=${API_SECRET_KEY}
-WEBHOOK_PATH=/webhook/plisio
-WEBHOOK_URL=${WEBHOOK_URL}
-
-# Plisio
-PLISIO_API_KEY=${PLISIO_API_KEY}
-PLISIO_SECRET_KEY=
-PLISIO_ENABLED=${PLISIO_ENABLED}
-
-# Domain & SSL
-DOMAIN=${DOMAIN}
-SSL_EMAIL=${SSL_EMAIL}
-
-# App
-DEBUG=false
-LOG_LEVEL=INFO
-DEFAULT_LOCALE=fa
-USE_PERSIAN_NUMBERS=true
-USE_JALALI_DATES=true
-EOF
-chmod 600 .env
+install_docker() {
+  if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    log "Docker already installed."
+    return
+  fi
+  log "Installing Docker..."
+  curl -fsSL https://get.docker.com | sh
+  systemctl enable --now docker 2>/dev/null || true
+}
 
 ensure_swap() {
-    local mem_mb
-    mem_mb=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}' || echo 4096)
-    if [[ "$mem_mb" -lt 2048 ]] && [[ ! -f /swapfile ]]; then
-        info "RAM kam — sakht 2GB swap (yek bar)..."
-        fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048
-        chmod 600 /swapfile
-        mkswap /swapfile
-        swapon /swapfile
-        grep -q '/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
-    fi
+  if swapon --show 2>/dev/null | grep -q .; then
+    return
+  fi
+  if [[ ! -f /swapfile ]]; then
+    log "Adding 2GB swap (helps Docker build on small VPS)..."
+    fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048 status=progress
+    chmod 600 /swapfile
+    mkswap /swapfile
+    swapon /swapfile
+    grep -q '/swapfile' /etc/fstab 2>/dev/null || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  fi
 }
 
-nginx_root_location() {
-    if [[ "${BUILD_MINIAPP}" == "1" ]]; then
-        cat <<'NGINX'
-    location / {
-        proxy_pass http://mini-app:3000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-NGINX
-    else
-        cat <<'NGINX'
-    location / {
-        root /usr/share/nginx/html;
-        try_files $uri /index.html;
-    }
-NGINX
-    fi
+# Only stop/remove OUR containers — never touch apache, nginx, or other bots
+cleanup_tokenbot_only() {
+  log "Cleaning previous tokenbot install (other bots untouched)..."
+  if [[ -d "$INSTALL_DIR" ]] && [[ -f "$INSTALL_DIR/docker-compose.yml" ]]; then
+    (cd "$INSTALL_DIR" && docker compose down --remove-orphans 2>/dev/null) || true
+  fi
+  docker rm -f tokenbot_backend tokenbot_postgres tokenbot_redis tokenbot_nginx tokenbot_miniapp tokenbot_certbot 2>/dev/null || true
 }
 
-build_docker_images() {
-    export DOCKER_BUILDKIT=1
-    export COMPOSE_HTTP_TIMEOUT=600
-    ensure_swap
+download_source() {
+  log "Downloading source..."
+  rm -rf "$INSTALL_DIR"
+  mkdir -p "$INSTALL_DIR"
 
-    info "=== Build backend (2-5 daghighe) ==="
-    docker compose build --progress=plain backend
-
-    if [[ "${BUILD_MINIAPP}" == "1" ]]; then
-        info "=== Build mini-app (15-30 daghighe — sabr kon, giro normal nist) ==="
-        docker compose --profile miniapp build --progress=plain mini-app
-    else
-        warn "Mini App build skip shod — faghat bot va API"
-    fi
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    git clone --depth 1 "https://${GITHUB_TOKEN}@github.com/${REPO}.git" "$INSTALL_DIR"
+  else
+    curl -fsSL "$TARBALL_URL" | tar -xz -C /tmp
+    mv "/tmp/token-reward-bot-main"/* "/tmp/token-reward-bot-main"/.[!.]* "$INSTALL_DIR" 2>/dev/null || \
+      cp -a "/tmp/token-reward-bot-main/." "$INSTALL_DIR"
+    rm -rf "/tmp/token-reward-bot-main"
+  fi
 }
 
-compose_up() {
-    if [[ "${BUILD_MINIAPP}" == "1" ]]; then
-        docker compose --profile miniapp up -d "$@"
-    else
-        docker compose up -d "$@"
-    fi
-}
-
-# ─── Nginx config generators ────────────────────────────────
-mkdir -p nginx/conf.d nginx/html
-
-write_nginx_http() {
-    cat > nginx/conf.d/default.conf <<NGINX
-# HTTP-only (pre-SSL) — generated by install.sh
+write_nginx_http_only() {
+  local listen_name="${1:-_}"
+  cat > nginx/conf.d/tokenbot.conf <<NGINX
 server {
     listen 80;
-    listen [::]:80;
-    server_name ${DOMAIN};
-
-    location /.well-known/acme-challenge/ {
-        root /var/www/certbot;
-        try_files \$uri =404;
-    }
+    server_name ${listen_name};
 
     location /api/ {
-        proxy_pass http://backend:8000;
+        proxy_pass http://backend:8000/;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -443,28 +151,31 @@ server {
     }
 
     location /webhook/ {
-        proxy_pass http://backend:8000;
+        proxy_pass http://backend:8000/webhook/;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 
-$(nginx_root_location)
+    location / {
+        proxy_pass http://mini-app:3000/;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
 }
 NGINX
 }
 
-write_nginx_ssl() {
-    cat > nginx/conf.d/default.conf <<NGINX
-# HTTP → HTTPS redirect + ACME
+write_nginx_with_ssl() {
+  cat > nginx/conf.d/tokenbot.conf <<NGINX
 server {
     listen 80;
-    listen [::]:80;
     server_name ${DOMAIN};
 
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
-        try_files \$uri =404;
     }
 
     location / {
@@ -472,20 +183,16 @@ server {
     }
 }
 
-# HTTPS
 server {
     listen 443 ssl http2;
-    listen [::]:443 ssl http2;
     server_name ${DOMAIN};
 
-    ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
-    ssl_protocols       TLSv1.2 TLSv1.3;
-    ssl_ciphers         HIGH:!aNULL:!MD5;
-    ssl_prefer_server_ciphers on;
+    ssl_protocols TLSv1.2 TLSv1.3;
 
     location /api/ {
-        proxy_pass http://backend:8000;
+        proxy_pass http://backend:8000/;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -493,137 +200,281 @@ server {
     }
 
     location /webhook/ {
-        proxy_pass http://backend:8000;
+        proxy_pass http://backend:8000/webhook/;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 
-$(nginx_root_location)
+    location / {
+        proxy_pass http://mini-app:3000/;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
 }
 NGINX
 }
 
-read_tty _BUILD_MINI "Build Mini App? (15-30 min, server weak) (y/n) [n]: "
-_BUILD_MINI="${_BUILD_MINI:-n}"
-if [[ "$_BUILD_MINI" == "y" || "$_BUILD_MINI" == "Y" ]]; then
-    BUILD_MINIAPP=1
-else
-    BUILD_MINIAPP=0
-fi
+generate_env() {
+  local pg_pass redis_pass api_secret
+  pg_pass="$(openssl rand -hex 16)"
+  redis_pass="$(openssl rand -hex 12)"
+  api_secret="$(openssl rand -hex 32)"
 
-write_nginx_http
-log "Nginx (HTTP) amade shod"
+  cat > .env <<ENV
+# Generated by install.sh v${INSTALLER_VERSION}
+BOT_TOKEN=${BOT_TOKEN}
+ADMIN_IDS=${ADMIN_IDS}
+WEBAPP_URL=${WEBAPP_URL}
 
-# ─── Build & start core services ──────────────────────────────
-build_docker_images
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+POSTGRES_DB=tokenbot
+POSTGRES_USER=tokenbot
+POSTGRES_PASSWORD=${pg_pass}
 
-log "rahandazi PostgreSQL va Redis..."
-compose_up postgres redis
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_PASSWORD=${redis_pass}
 
-info "منتظر آماده شدن دیتابیس..."
-for i in $(seq 1 30); do
-    if docker compose exec -T postgres pg_isready -U tokenbot &>/dev/null; then
-        break
-    fi
-    sleep 2
-done
+API_HOST=0.0.0.0
+API_PORT=8000
+API_SECRET_KEY=${api_secret}
+WEBHOOK_PATH=/webhook/plisio
+WEBHOOK_URL=${WEBHOOK_URL}
 
-log "rahandazi Backend..."
-compose_up backend
-if [[ "${BUILD_MINIAPP}" == "1" ]]; then
-    log "rahandazi Mini App..."
-    compose_up mini-app
-fi
+PLISIO_API_KEY=${PLISIO_API_KEY}
+PLISIO_SECRET_KEY=${PLISIO_SECRET_KEY:-${PLISIO_API_KEY}}
+PLISIO_ENABLED=${PLISIO_ENABLED:-true}
 
-log "rahandazi Nginx (HTTP)..."
-free_web_ports
-compose_up nginx
+DOMAIN=${DOMAIN:-}
+SSL_EMAIL=${SSL_EMAIL:-}
+SSL_ENABLED=${SSL_ENABLED:-false}
+TOKENBOT_HTTP_PORT=${TOKENBOT_HTTP_PORT}
+TOKENBOT_HTTPS_PORT=${TOKENBOT_HTTPS_PORT:-8443}
+SERVER_IP=${SERVER_IP}
 
-# ─── SSL with Certbot ─────────────────────────────────────────
-log "دریافت SSL از Let's Encrypt (Certbot)..."
-info "مطمئن شو DNS دامنه $DOMAIN به IP این سرور اشاره میکنه"
+DEBUG=false
+LOG_LEVEL=INFO
+DEFAULT_LOCALE=fa
+USE_PERSIAN_NUMBERS=true
+USE_JALALI_DATES=true
+ENV
+  chmod 600 .env
+}
 
-# Wait for nginx
-sleep 3
+setup_systemd() {
+  cat > "${INSTALL_DIR}/start.sh" <<'START'
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+# shellcheck disable=SC1091
+[[ -f .compose.env ]] && source .compose.env
+docker compose ${COMPOSE_FILES:--f docker-compose.yml} ${COMPOSE_PROFILES:-} up -d "$@"
+START
+  chmod +x "${INSTALL_DIR}/start.sh"
 
-if docker compose run --rm --entrypoint certbot certbot certonly \
-    --webroot \
-    --webroot-path=/var/www/certbot \
-    --email "$SSL_EMAIL" \
-    --agree-tos \
-    --no-eff-email \
-    --non-interactive \
-    -d "$DOMAIN"; then
+  cat > "${INSTALL_DIR}/.compose.env" <<COMPOSE
+COMPOSE_FILES="${COMPOSE_FILES}"
+COMPOSE_PROFILES="${COMPOSE_PROFILES}"
+COMPOSE
+  chmod 600 "${INSTALL_DIR}/.compose.env"
 
-    log "SSL daryaft shod"
-    write_nginx_ssl
-    docker compose exec nginx nginx -s reload 2>/dev/null || docker compose restart nginx
-else
-    warn "دریافت SSL ناموفق بود"
-    warn "بعداً دستی اجرا کن:"
-    warn "  cd $INSTALL_DIR"
-    warn "  docker compose run --rm --entrypoint certbot certbot certonly --webroot -w /var/www/certbot -d $DOMAIN --email $SSL_EMAIL --agree-tos"
-fi
-
-# ─── Start certbot renew + remaining services ───────────────
-log "راه‌اندازی Certbot (تمدید خودکار)..."
-compose_up certbot
-
-# ─── Systemd service ──────────────────────────────────────────
-log "ساخت سرویس systemd..."
-cat > /etc/systemd/system/tokenbot.service <<EOF
+  cat > /etc/systemd/system/tokenbot.service <<UNIT
 [Unit]
 Description=Token Reward Bot
+After=docker.service
 Requires=docker.service
-After=docker.service network-online.target
-Wants=network-online.target
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=${INSTALL_DIR}
-ExecStart=/usr/bin/docker compose up -d
-ExecStop=/usr/bin/docker compose down
-TimeoutStartSec=300
+ExecStart=${INSTALL_DIR}/start.sh
+ExecStop=/usr/bin/docker compose -f docker-compose.yml down
+TimeoutStartSec=0
 
 [Install]
 WantedBy=multi-user.target
-EOF
+UNIT
+  systemctl daemon-reload
+  systemctl enable tokenbot.service 2>/dev/null || true
+}
 
-systemctl daemon-reload
-systemctl enable tokenbot.service
+allow_firewall_port() {
+  local port="$1"
+  local label="$2"
+  if command -v ufw >/dev/null 2>&1; then
+    if ufw status 2>/dev/null | grep -q "Status: active"; then
+      ufw allow "${port}/tcp" comment "$label" 2>/dev/null || true
+      log "UFW: allowed port ${port} (${label})"
+    fi
+  fi
+}
 
-# ─── Save credentials ─────────────────────────────────────────
-CREDS_FILE="${INSTALL_DIR}/.install-credentials.txt"
-cat > "$CREDS_FILE" <<EOF
-Token Reward Bot — اطلاعات نصب
-تاریخ: $(date)
-Domain: ${DOMAIN}
-WebApp: ${WEBAPP_URL}
-Webhook: ${WEBHOOK_URL}
-PostgreSQL Password: ${POSTGRES_PASSWORD}
-Redis Password: ${REDIS_PASSWORD}
-API Secret: ${API_SECRET_KEY}
-Plisio: ${PLISIO_ENABLED}
-EOF
-chmod 600 "$CREDS_FILE"
+# ── Main ──────────────────────────────────────────────────────────────────────
+main() {
+  echo ""
+  echo "============================================"
+  echo " Token Reward Bot Installer v${INSTALLER_VERSION}"
+  echo " Safe install — other bots/services untouched"
+  echo "============================================"
+  echo ""
 
-# ─── Done ─────────────────────────────────────────────────────
-echo ""
-echo "╔══════════════════════════════════════════╗"
-echo "║          نصب با موفقیت انجام شد ✅         ║"
-echo "╚══════════════════════════════════════════╝"
-echo ""
-echo "  🌐 Mini App:  ${WEBAPP_URL}"
-echo "  🔗 Webhook:   ${WEBHOOK_URL}"
-echo "  📁 مسیر:      ${INSTALL_DIR}"
-echo "  🔐 رمزها:     ${CREDS_FILE}"
-echo ""
-echo "  دستورات:"
-echo "    cd ${INSTALL_DIR} && docker compose logs -f backend"
-echo "    systemctl status tokenbot"
-echo "    docker compose ps"
-echo ""
-warn "فایل ${CREDS_FILE} رو امن نگه دار و بعداً پاک کن"
-echo ""
+  require_root
+  install_docker
+  ensure_swap
+
+  prompt_required BOT_TOKEN "Telegram Bot Token: "
+  prompt_required ADMIN_IDS "Admin Telegram IDs (comma-separated): "
+
+  echo ""
+  log "Domain is OPTIONAL — you can install with IP:PORT only."
+  log "Add domain + SSL later: bash scripts/add-domain.sh"
+  echo ""
+  read_tty DOMAIN "Domain (Enter = skip, IP-only install): "
+
+  SERVER_IP="$(detect_public_ip)"
+  USE_SSL=false
+  BUILD_MINIAPP="${BUILD_MINIAPP:-0}"
+
+  if [[ -n "${DOMAIN:-}" ]]; then
+    prompt_required SSL_EMAIL "Email for Let's Encrypt: "
+    USE_SSL=true
+    if port_in_use 80; then
+      warn "Port 80 is in use (e.g. Apache/other bots). HTTP-01 SSL may fail."
+      warn "Options: free port 80 temporarily, proxy /.well-known to this bot, or install without domain first."
+      TOKENBOT_HTTP_PORT="$(pick_http_port)"
+    else
+      read_tty USE80 "Use port 80 for SSL challenge? (recommended) [Y/n]: "
+      if [[ -z "${USE80}" || "${USE80,,}" == "y" ]]; then
+        TOKENBOT_HTTP_PORT=80
+      else
+        TOKENBOT_HTTP_PORT="$(pick_http_port)"
+      fi
+    fi
+    if port_in_use 443; then
+      TOKENBOT_HTTPS_PORT="$(find_free_port 8443)"
+      warn "Port 443 busy — HTTPS will use ${TOKENBOT_HTTPS_PORT}"
+    else
+      read_tty USE443 "Use port 443 for HTTPS? [Y/n]: "
+      if [[ -n "${USE443}" && "${USE443,,}" == "n" ]]; then
+        TOKENBOT_HTTPS_PORT="$(find_free_port 8443)"
+      else
+        TOKENBOT_HTTPS_PORT=443
+      fi
+    fi
+    WEBAPP_URL="https://${DOMAIN}"
+    WEBHOOK_URL="https://${DOMAIN}/webhook/plisio"
+    log "HTTP port: ${TOKENBOT_HTTP_PORT}  |  HTTPS port: ${TOKENBOT_HTTPS_PORT}"
+    BUILD_MINIAPP=1
+  else
+    DOMAIN=""
+    SSL_EMAIL=""
+    TOKENBOT_HTTP_PORT="$(pick_http_port)"
+    TOKENBOT_HTTPS_PORT=8443
+    WEBAPP_URL="http://${SERVER_IP}:${TOKENBOT_HTTP_PORT}"
+    WEBHOOK_URL="http://${SERVER_IP}:${TOKENBOT_HTTP_PORT}/webhook/plisio"
+    log "No domain — Mini App URL: ${WEBAPP_URL}"
+    log "Bot works via polling; Mini App needs this URL in @BotFather."
+    read_tty BUILD_ANS "Build Mini App now? (y/N): "
+    [[ "${BUILD_ANS,,}" == "y" ]] && BUILD_MINIAPP=1
+  fi
+
+  read_tty PLISIO_API_KEY "Plisio API Token (Enter to skip): "
+  PLISIO_ENABLED=$([[ -n "${PLISIO_API_KEY:-}" ]] && echo true || echo false)
+
+  echo ""
+  log "Ports: HTTP=${TOKENBOT_HTTP_PORT}  HTTPS=${TOKENBOT_HTTPS_PORT:-n/a}"
+  log "Other services on 80/443 will NOT be stopped."
+  echo ""
+
+  cleanup_tokenbot_only
+  download_source
+  cd "$INSTALL_DIR"
+
+  export BOT_TOKEN ADMIN_IDS DOMAIN SSL_EMAIL SERVER_IP
+  export TOKENBOT_HTTP_PORT TOKENBOT_HTTPS_PORT
+  export WEBAPP_URL WEBHOOK_URL PLISIO_API_KEY PLISIO_ENABLED
+  export SSL_ENABLED=$USE_SSL
+  export BUILD_MINIAPP
+
+  generate_env
+  mkdir -p nginx/conf.d nginx/ssl nginx/html certbot/www certbot/conf
+
+  if [[ "$USE_SSL" == true ]]; then
+    write_nginx_with_ssl
+  else
+    write_nginx_http_only "_"
+  fi
+
+  allow_firewall_port "$TOKENBOT_HTTP_PORT" "tokenbot-http"
+  if [[ "$USE_SSL" == true ]]; then
+    allow_firewall_port "$TOKENBOT_HTTPS_PORT" "tokenbot-https"
+  fi
+
+  log "Building Docker images (this may take several minutes)..."
+  COMPOSE_FILES="-f docker-compose.yml"
+  COMPOSE_PROFILES=""
+  if [[ "$USE_SSL" == true ]]; then
+    COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.ssl.yml"
+    COMPOSE_PROFILES="--profile ssl"
+  fi
+  if [[ "$BUILD_MINIAPP" == "1" ]]; then
+    COMPOSE_PROFILES="$COMPOSE_PROFILES --profile miniapp"
+  fi
+  export COMPOSE_FILES COMPOSE_PROFILES
+
+  bash scripts/docker-build.sh 2>/dev/null || {
+    if [[ "$BUILD_MINIAPP" == "1" ]]; then
+      docker compose $COMPOSE_FILES --profile miniapp build
+    else
+      docker compose $COMPOSE_FILES build backend postgres redis nginx 2>/dev/null || \
+        docker compose $COMPOSE_FILES build
+    fi
+  }
+
+  log "Starting services..."
+  if [[ "$BUILD_MINIAPP" == "1" ]]; then
+    docker compose $COMPOSE_FILES --profile miniapp $COMPOSE_PROFILES up -d
+  else
+    docker compose $COMPOSE_FILES up -d postgres redis backend nginx
+  fi
+
+  if [[ "$USE_SSL" == true ]]; then
+    log "Obtaining SSL certificate..."
+    sleep 3
+    docker compose $COMPOSE_FILES $COMPOSE_PROFILES run --rm certbot certonly \
+      --webroot -w /var/www/certbot \
+      -d "$DOMAIN" \
+      --email "$SSL_EMAIL" \
+      --agree-tos --non-interactive --no-eff-email && \
+      docker compose $COMPOSE_FILES --profile miniapp $COMPOSE_PROFILES up -d nginx || {
+        warn "Certbot failed — DNS must point to ${SERVER_IP}"
+        warn "Fix DNS then run: bash scripts/add-domain.sh"
+      }
+  fi
+
+  setup_systemd
+
+  echo ""
+  echo "============================================"
+  echo " Installation complete!"
+  echo "============================================"
+  echo "  Bot:       running (Telegram polling)"
+  echo "  API:       http://${SERVER_IP}:${TOKENBOT_HTTP_PORT}/api/"
+  if [[ -n "${DOMAIN:-}" ]]; then
+    echo "  Domain:    https://${DOMAIN} (ports ${TOKENBOT_HTTP_PORT}/${TOKENBOT_HTTPS_PORT})"
+  else
+    echo "  Web:       http://${SERVER_IP}:${TOKENBOT_HTTP_PORT}"
+    echo "  Add domain later:"
+    echo "    cd ${INSTALL_DIR} && bash scripts/add-domain.sh"
+  fi
+  echo "  Mini App:  set URL in @BotFather → ${WEBAPP_URL}"
+  echo "  Logs:      cd ${INSTALL_DIR} && docker compose logs -f backend"
+  echo "============================================"
+}
+
+main "$@"

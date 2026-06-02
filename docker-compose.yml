@@ -73,8 +73,7 @@ services:
     container_name: tokenbot_nginx
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - "${TOKENBOT_HTTP_PORT:-8080}:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
@@ -87,6 +86,7 @@ services:
       - tokenbot_network
 
   certbot:
+    profiles: ["ssl"]
     image: certbot/certbot
     container_name: tokenbot_certbot
     volumes:

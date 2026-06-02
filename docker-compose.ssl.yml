@@ -1,0 +1,9 @@
+# Optional SSL override — created by scripts/add-domain.sh
+services:
+  nginx:
+    ports:
+      - "${TOKENBOT_HTTP_PORT:-8080}:80"
+      - "${TOKENBOT_HTTPS_PORT:-8443}:443"
+
+  certbot:
+    profiles: ["ssl"]
