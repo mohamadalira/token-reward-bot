@@ -3,45 +3,94 @@
 # Version: 2.3.0
 set -euo pipefail
 
-INSTALLER_VERSION="2.3.1"
+INSTALLER_VERSION="2.3.2"
 INSTALL_DIR="/opt/tokenbot"
 REPO="mohamadalira/token-reward-bot"
 REPO_URL="https://github.com/${REPO}.git"
 TARBALL_URL="https://github.com/${REPO}/archive/refs/heads/main.tar.gz"
 
-# ── Re-exec when piped (curl | bash) ────────────────────────────────────────
+# ── Re-exec when piped (curl | bash) — must attach real terminal ─────────────
 if [[ ! -t 0 ]] && [[ -z "${TOKENBOT_INSTALL_REEXEC:-}" ]]; then
   export TOKENBOT_INSTALL_REEXEC=1
   TMP_SCRIPT="$(mktemp /tmp/tokenbot-install.XXXXXX.sh)"
   curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/install.sh" -o "$TMP_SCRIPT"
   chmod +x "$TMP_SCRIPT"
-  exec bash "$TMP_SCRIPT" "$@" </dev/tty
+  # Prefer saved script + tty (works with: curl -o install.sh && sudo bash install.sh)
+  if [[ -t 1 ]] && [[ -r /dev/tty ]]; then
+    exec bash "$TMP_SCRIPT" "$@" 0</dev/tty
+  else
+    err "No TTY. Run: curl -fsSL ... -o install.sh && sudo bash install.sh"
+    err "Or: sudo BOT_TOKEN=... ADMIN_IDS=... bash install.sh"
+    exit 1
+  fi
 fi
+
+# Persistent TTY fd (opened once — repeated open </dev/tty can fail under sudo)
+TOKENBOT_TTY_FD=""
+open_tty_fd() {
+  if [[ -n "${TOKENBOT_TTY_FD}" ]]; then
+    return 0
+  fi
+  if [[ -r /dev/tty ]] && exec 3</dev/tty 2>/dev/null; then
+    TOKENBOT_TTY_FD=3
+  fi
+}
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 log()  { echo -e "\033[1;32m[INFO]\033[0m  $*"; }
 warn() { echo -e "\033[1;33m[WARN]\033[0m  $*"; }
 err()  { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; }
 
+trim_input() {
+  local s="$1"
+  s="${s//$'\r'/}"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
 read_tty() {
-  # Use __buf — NOT "val" — so prompt_required's variable name is not shadowed
   local __name="$1"
   local __prompt="$2"
   local __buf=""
-  if [[ -r /dev/tty ]]; then
-    read -r -p "$__prompt" __buf </dev/tty
-  else
-    read -r -p "$__prompt" __buf
+
+  # Skip if already provided (env / export before running script)
+  if [[ -n "${!__name:-}" ]]; then
+    printf -v "$__name" '%s' "$(trim_input "${!__name}")"
+    return 0
   fi
+
+  open_tty_fd
+
+  if [[ -n "${TOKENBOT_TTY_FD}" ]]; then
+    read -r -p "$__prompt" __buf <&"${TOKENBOT_TTY_FD}" || true
+  fi
+  if [[ -z "$__buf" ]] && [[ -r /dev/tty ]]; then
+    read -r -p "$__prompt" __buf </dev/tty || true
+  fi
+  if [[ -z "$__buf" ]] && [[ -t 0 ]]; then
+    read -r -p "$__prompt" __buf || true
+  fi
+  if [[ -z "$__buf" ]]; then
+    read -r -p "$__prompt" __buf </dev/stdin || true
+  fi
+
+  __buf="$(trim_input "$__buf")"
   printf -v "$__name" '%s' "$__buf"
 }
 
 prompt_required() {
   local __name="$1"
   local __prompt="$2"
-  while [[ -z "${!__name}" ]]; do
+  local __val=""
+  while true; do
     read_tty "$__name" "$__prompt"
-    [[ -z "${!__name}" ]] && warn "This field is required."
+    __val="${!__name:-}"
+    if [[ -n "$__val" ]]; then
+      printf -v "$__name" '%s' "$__val"
+      return 0
+    fi
+    warn "This field is required. (Tip: download script first, or use BOT_TOKEN=... env)"
   done
 }
 
@@ -327,11 +376,23 @@ main() {
   echo ""
 
   require_root
+  open_tty_fd
   install_docker
   ensure_swap
 
-  prompt_required BOT_TOKEN "Telegram Bot Token: "
-  prompt_required ADMIN_IDS "Admin Telegram IDs (comma-separated): "
+  if [[ -n "${BOT_TOKEN:-}" ]]; then
+    BOT_TOKEN="$(trim_input "$BOT_TOKEN")"
+    log "Using BOT_TOKEN from environment"
+  else
+    prompt_required BOT_TOKEN "Telegram Bot Token: "
+  fi
+
+  if [[ -n "${ADMIN_IDS:-}" ]]; then
+    ADMIN_IDS="$(trim_input "$ADMIN_IDS")"
+    log "Using ADMIN_IDS from environment"
+  else
+    prompt_required ADMIN_IDS "Admin Telegram IDs (comma-separated): "
+  fi
 
   echo ""
   log "Domain is OPTIONAL — you can install with IP:PORT only."

@@ -32,8 +32,19 @@
 ## نصب سریع (Ubuntu 22.04+)
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/mohamadalira/token-reward-bot/main/install.sh | sudo bash
+# روش پایدار (پیشنهادی — ورودی Token درست خوانده می‌شود)
+curl -fsSL https://raw.githubusercontent.com/mohamadalira/token-reward-bot/main/install.sh -o install.sh
+chmod +x install.sh
+sudo bash install.sh
 ```
+
+یا بدون پرامپت:
+
+```bash
+sudo BOT_TOKEN="YOUR_TOKEN" ADMIN_IDS="123456789" bash install.sh
+```
+
+`curl ... | sudo bash` گاهی ورودی را خالی می‌خواند — از روش بالا استفاده کنید.
 
 ### هم‌زیستی با ربات‌های دیگر
 

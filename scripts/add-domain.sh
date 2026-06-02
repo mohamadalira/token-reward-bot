@@ -5,16 +5,39 @@ set -euo pipefail
 INSTALL_DIR="${INSTALL_DIR:-/opt/tokenbot}"
 cd "$INSTALL_DIR" || { echo "Install dir not found: $INSTALL_DIR"; exit 1; }
 
+TOKENBOT_TTY_FD=""
+open_tty_fd() {
+  [[ -n "${TOKENBOT_TTY_FD}" ]] && return 0
+  if [[ -r /dev/tty ]] && exec 3</dev/tty 2>/dev/null; then
+    TOKENBOT_TTY_FD=3
+  fi
+}
+
+trim_input() {
+  local s="$1"
+  s="${s//$'\r'/}"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
 read_tty() {
   local __name="$1"
   local __prompt="$2"
   local __buf=""
-  if [[ -r /dev/tty ]]; then
-    read -r -p "$__prompt" __buf </dev/tty
-  else
-    read -r -p "$__prompt" __buf
+  if [[ -n "${!__name:-}" ]]; then
+    printf -v "$__name" '%s' "$(trim_input "${!__name}")"
+    return 0
   fi
-  printf -v "$__name" '%s' "$__buf"
+  open_tty_fd
+  if [[ -n "${TOKENBOT_TTY_FD}" ]]; then
+    read -r -p "$__prompt" __buf <&"${TOKENBOT_TTY_FD}" || true
+  elif [[ -r /dev/tty ]]; then
+    read -r -p "$__prompt" __buf </dev/tty || true
+  else
+    read -r -p "$__prompt" __buf || true
+  fi
+  printf -v "$__name" '%s' "$(trim_input "$__buf")"
 }
 
 port_in_use() {
