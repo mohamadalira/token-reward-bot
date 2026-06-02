@@ -13,7 +13,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 DEFAULT_INSTALL_DIR="/opt/tokenbot"
-REPO_URL="${REPO_URL:-https://github.com/YOUR_USERNAME/token-reward-bot.git}"
+REPO_URL="${REPO_URL:-https://github.com/mhmdalira/token-reward-bot.git}"
 
 log()  { echo -e "${GREEN}[✓]${NC} $1"; }
 warn() { echo -e "${YELLOW}[!]${NC} $1"; }
