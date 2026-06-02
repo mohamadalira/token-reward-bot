@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Token Reward Bot - Ubuntu 22.04+ Installer
 # Usage:
-#   curl -sSL https://raw.githubusercontent.com/YOUR_REPO/main/install.sh | sudo bash
+#   curl -sSL https://raw.githubusercontent.com/mohamadalira/token-reward-bot/main/install.sh | sudo bash
 #   sudo bash install.sh
 
 RED='\033[0;31m'
@@ -13,7 +13,61 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 DEFAULT_INSTALL_DIR="/opt/tokenbot"
-REPO_URL="${REPO_URL:-https://github.com/mhmdalira/token-reward-bot.git}"
+GITHUB_REPO="${GITHUB_REPO:-mohamadalira/token-reward-bot}"
+GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
+REPO_URL="${REPO_URL:-https://github.com/${GITHUB_REPO}.git}"
+
+clone_project() {
+    local target="$1"
+
+    if [[ -f "$target/docker-compose.yml" ]]; then
+        return 0
+    fi
+
+    log "دریافت پروژه از GitHub (${GITHUB_REPO})..."
+    mkdir -p "$target"
+
+    # Public repo: download archive (no git, no password)
+    local tarball="https://github.com/${GITHUB_REPO}/archive/refs/heads/${GITHUB_BRANCH}.tar.gz"
+    if curl -fsSL "$tarball" | tar xz -C "$target" --strip-components=1 2>/dev/null; then
+        log "پروژه دانلود شد ✅"
+        return 0
+    fi
+
+    # Private repo: git clone with optional token
+    apt-get install -y -qq git
+    export GIT_TERMINAL_PROMPT=0
+
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        if git clone --depth 1 -b "$GITHUB_BRANCH" \
+            "https://${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git" "$target" 2>/dev/null; then
+            log "پروژه clone شد (با token) ✅"
+            return 0
+        fi
+    fi
+
+    if git clone --depth 1 -b "$GITHUB_BRANCH" "$REPO_URL" "$target" 2>/dev/null; then
+        log "پروژه clone شد ✅"
+        return 0
+    fi
+
+    err "$(cat <<EOF
+دریافت پروژه ناموفق!
+
+راه‌حل‌ها:
+  1. repo رو Public کن:
+     GitHub → Settings → Change visibility → Public
+
+  2. یا token بده (repo Private):
+     export GITHUB_TOKEN=ghp_xxxxxxxx
+     bash install.sh
+
+  3. یا فایل‌ها رو دستی بفرست:
+     scp -r project/ root@SERVER:/opt/tokenbot
+     cd /opt/tokenbot && bash install.sh
+EOF
+)"
+}
 
 log()  { echo -e "${GREEN}[✓]${NC} $1"; }
 warn() { echo -e "${YELLOW}[!]${NC} $1"; }
@@ -124,12 +178,9 @@ if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/docker-compose.yml" ]]; then
     log "استفاده از فایل‌های محلی: $INSTALL_DIR"
 else
     INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
-    mkdir -p "$INSTALL_DIR"
-    if [[ ! -f "$INSTALL_DIR/docker-compose.yml" ]]; then
-        log "دریافت پروژه از Git..."
-        apt-get install -y -qq git
-        git clone "$REPO_URL" "$INSTALL_DIR" || err "Clone ناموفق — REPO_URL رو چک کن"
-    fi
+    apt-get update -qq
+    apt-get install -y -qq curl ca-certificates tar
+    clone_project "$INSTALL_DIR"
 fi
 
 cd "$INSTALL_DIR"

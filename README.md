@@ -32,7 +32,7 @@
 ## نصب سریع (Ubuntu 22.04+)
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/mohamadalira/token-reward-bot/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/mohamadalira/token-reward-bot/main/install.sh | sudo bash
 ```
 
 اسکریپت از شما می‌پرسد:
@@ -48,7 +48,7 @@ Webhook و WebApp URL خودکار از دامنه ساخته می‌شوند. S
 
 ```bash
 # 1. Clone
-git clone https://github.com/YOUR_REPO/token-reward-bot.git
+git clone https://github.com/mohamadalira/token-reward-bot.git
 cd token-reward-bot
 
 # 2. Configure

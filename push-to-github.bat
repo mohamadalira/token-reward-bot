@@ -26,7 +26,7 @@ if errorlevel 1 (
     echo.
     echo Manual fallback:
     echo   1. Create repo at https://github.com/new named token-reward-bot
-    echo   2. git remote add origin https://github.com/mhmdalira/token-reward-bot.git
+    echo   2. git remote add origin https://github.com/mohamadalira/token-reward-bot.git
     echo   3. git push -u origin main
 )
 
