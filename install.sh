@@ -21,10 +21,29 @@ GITHUB_REPO="${GITHUB_REPO:-mohamadalira/token-reward-bot}"
 GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
 REPO_URL="${REPO_URL:-https://github.com/${GITHUB_REPO}.git}"
 
+TTY="/dev/tty"
+
 log()  { echo -e "${GREEN}[OK]${NC} $1"; }
 warn() { echo -e "${YELLOW}[!]${NC} $1"; }
 info() { echo -e "${BLUE}[i]${NC} $1"; }
 err()  { echo -e "${RED}[X]${NC} $1"; exit 1; }
+
+# read from terminal (NOT stdin) — required when script is piped: curl | bash
+read_tty() {
+    local var_name="$1"
+    local prompt="$2"
+    local secret="${3:-false}"
+    if [[ ! -r "$TTY" ]]; then
+        err "Terminal peida nashod. Script ro download kon va ejra kon:
+  curl -sSL .../install.sh -o install.sh && sudo bash install.sh"
+    fi
+    if [[ "$secret" == "true" ]]; then
+        read -rsp "$prompt" "$var_name" <"$TTY"
+        echo
+    else
+        read -rp "$prompt" "$var_name" <"$TTY"
+    fi
+}
 
 clone_project() {
     local target="$1"
@@ -71,17 +90,9 @@ prompt() {
     local value=""
 
     if [[ -n "$default" ]]; then
-        if [[ "$secret" == "true" ]]; then
-            read -rsp "$message [$default]: " value; echo
-        else
-            read -rp "$message [$default]: " value
-        fi
+        read_tty value "${message} [${default}]: " "$secret"
     else
-        if [[ "$secret" == "true" ]]; then
-            read -rsp "$message: " value; echo
-        else
-            read -rp "$message: " value
-        fi
+        read_tty value "${message}: " "$secret"
     fi
 
     if [[ -z "$value" ]]; then
@@ -95,8 +106,8 @@ prompt_required() {
     local message="$2"
     local value=""
     while [[ -z "$value" ]]; do
-        read -rp "$message: " value
-        [[ -z "$value" ]] && warn "این فیلد اجباریه"
+        read_tty value "${message}: "
+        [[ -z "$value" ]] && warn "in field ejbarie"
     done
     printf -v "$var_name" '%s' "$value"
 }
@@ -133,7 +144,7 @@ prompt REDIS_PASSWORD "🔴 Redis Password (خالی=خودکار)" "$AUTO_REDIS
 prompt_required DOMAIN "🌐 Domain (مثال: bot.example.com)"
 prompt_required SSL_EMAIL "📧 Email برای SSL (Certbot)"
 
-read -rp "Plisio API Token (khali=ghayrefaal): " PLISIO_API_KEY
+read_tty PLISIO_API_KEY "Plisio API Token (khali=ghayrefaal): "
 PLISIO_ENABLED="false"
 if [ -n "${PLISIO_API_KEY}" ]; then
     PLISIO_ENABLED="true"
@@ -155,9 +166,9 @@ echo "  WebApp:    $WEBAPP_URL"
 echo "  Webhook:   $WEBHOOK_URL"
 echo "  Plisio:    $PLISIO_ENABLED"
 echo ""
-read -rp "ادامه نصب؟ (y/n) [y]: " CONFIRM
+read_tty CONFIRM "Edame nasb? (y/n) [y]: "
 CONFIRM="${CONFIRM:-y}"
-[[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]] && err "نصب لغو شد"
+[[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" && -n "$CONFIRM" ]] && err "nasb laghv shod"
 
 # ─── Detect install directory ─────────────────────────────────
 SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
