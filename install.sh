@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-INSTALLER_VERSION="2.1.0"
+INSTALLER_VERSION="2.1.1"
 RAW_INSTALL_URL="https://raw.githubusercontent.com/mohamadalira/token-reward-bot/main/install.sh"
 
 # curl | bash: stdin is the pipe — read would consume script lines (broken prompts).
@@ -67,9 +67,15 @@ fresh_install() {
     local dir="$1"
     log "Pak kardan nasb ghabli..."
     systemctl stop tokenbot.service 2>/dev/null || true
+    docker rm -f tokenbot_backend tokenbot_miniapp tokenbot_nginx tokenbot_postgres tokenbot_redis tokenbot_certbot 2>/dev/null || true
     if command -v docker &>/dev/null && [[ -f "${dir}/docker-compose.yml" ]]; then
         (cd "$dir" && docker compose down --remove-orphans 2>/dev/null) || true
     fi
+    # Free ports if old process still holds them
+    fuser -k 8000/tcp 2>/dev/null || true
+    fuser -k 3000/tcp 2>/dev/null || true
+    fuser -k 80/tcp 2>/dev/null || true
+    fuser -k 443/tcp 2>/dev/null || true
     rm -rf "$dir"
 }
 

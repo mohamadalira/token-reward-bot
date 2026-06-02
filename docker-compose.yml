@@ -46,10 +46,9 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ./backend:/app
       - config_uploads:/app/uploads
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     networks:
       - tokenbot_network
 
@@ -63,8 +62,8 @@ services:
     restart: unless-stopped
     environment:
       - NEXT_PUBLIC_API_URL=${WEBAPP_URL}/api
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     networks:
       - tokenbot_network
 
