@@ -2,9 +2,13 @@
 set -euo pipefail
 
 # Token Reward Bot - Ubuntu 22.04+ Installer
-# Usage:
+# Usage (recommended - download first):
+#   curl -sSL https://raw.githubusercontent.com/mohamadalira/token-reward-bot/main/install.sh -o install.sh
+#   sed -i 's/\r$//' install.sh
+#   chmod +x install.sh && sudo bash install.sh
+#
+# Or pipe (may fail on some shells):
 #   curl -sSL https://raw.githubusercontent.com/mohamadalira/token-reward-bot/main/install.sh | sudo bash
-#   sudo bash install.sh
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -16,6 +20,11 @@ DEFAULT_INSTALL_DIR="/opt/tokenbot"
 GITHUB_REPO="${GITHUB_REPO:-mohamadalira/token-reward-bot}"
 GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
 REPO_URL="${REPO_URL:-https://github.com/${GITHUB_REPO}.git}"
+
+log()  { echo -e "${GREEN}[OK]${NC} $1"; }
+warn() { echo -e "${YELLOW}[!]${NC} $1"; }
+info() { echo -e "${BLUE}[i]${NC} $1"; }
+err()  { echo -e "${RED}[X]${NC} $1"; exit 1; }
 
 clone_project() {
     local target="$1"
@@ -30,7 +39,7 @@ clone_project() {
     # Public repo: download archive (no git, no password)
     local tarball="https://github.com/${GITHUB_REPO}/archive/refs/heads/${GITHUB_BRANCH}.tar.gz"
     if curl -fsSL "$tarball" | tar xz -C "$target" --strip-components=1 2>/dev/null; then
-        log "پروژه دانلود شد ✅"
+        log "proje download shod"
         return 0
     fi
 
@@ -41,38 +50,18 @@ clone_project() {
     if [[ -n "${GITHUB_TOKEN:-}" ]]; then
         if git clone --depth 1 -b "$GITHUB_BRANCH" \
             "https://${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git" "$target" 2>/dev/null; then
-            log "پروژه clone شد (با token) ✅"
+            log "proje clone shod (ba token)"
             return 0
         fi
     fi
 
     if git clone --depth 1 -b "$GITHUB_BRANCH" "$REPO_URL" "$target" 2>/dev/null; then
-        log "پروژه clone شد ✅"
+        log "proje clone shod"
         return 0
     fi
 
-    err "$(cat <<EOF
-دریافت پروژه ناموفق!
-
-راه‌حل‌ها:
-  1. repo رو Public کن:
-     GitHub → Settings → Change visibility → Public
-
-  2. یا token بده (repo Private):
-     export GITHUB_TOKEN=ghp_xxxxxxxx
-     bash install.sh
-
-  3. یا فایل‌ها رو دستی بفرست:
-     scp -r project/ root@SERVER:/opt/tokenbot
-     cd /opt/tokenbot && bash install.sh
-EOF
-)"
+    err "Clone failed. Make repo Public or set GITHUB_TOKEN, or copy files to /opt/tokenbot manually."
 }
-
-log()  { echo -e "${GREEN}[✓]${NC} $1"; }
-warn() { echo -e "${YELLOW}[!]${NC} $1"; }
-info() { echo -e "${BLUE}[i]${NC} $1"; }
-err()  { echo -e "${RED}[✗]${NC} $1"; exit 1; }
 
 prompt() {
     local var_name="$1"
@@ -144,13 +133,14 @@ prompt REDIS_PASSWORD "🔴 Redis Password (خالی=خودکار)" "$AUTO_REDIS
 prompt_required DOMAIN "🌐 Domain (مثال: bot.example.com)"
 prompt_required SSL_EMAIL "📧 Email برای SSL (Certbot)"
 
-read -rp "💳 Plisio API Token (خالی=غیرفعال): " PLISIO_API_KEY
-if [[ -n "$PLISIO_API_KEY" ]]; then
+read -rp "Plisio API Token (khali=ghayrefaal): " PLISIO_API_KEY
+PLISIO_ENABLED="false"
+if [ -n "${PLISIO_API_KEY}" ]; then
     PLISIO_ENABLED="true"
-    info "Plisio فعال — همین Token برای API و Webhook استفاده میشه"
-else
-    PLISIO_ENABLED="false"
-    warn "Plisio غیرفعال — بعداً از پنل ادمین فعالش کن"
+    info "Plisio faal shod - hamin token baraye API va Webhook"
+fi
+if [ "${PLISIO_ENABLED}" = "false" ]; then
+    warn "Plisio gheyrefaal - baad az panel admin faalesh kon"
 fi
 
 # Auto-generated values
@@ -422,7 +412,7 @@ if docker compose run --rm --entrypoint certbot certbot certonly \
     --non-interactive \
     -d "$DOMAIN"; then
 
-    log "SSL با موفقیت دریافت شد ✅"
+    log "SSL daryaft shod"
     write_nginx_ssl
     docker compose exec nginx nginx -s reload 2>/dev/null || docker compose restart nginx
 else
