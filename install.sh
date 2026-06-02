@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-INSTALLER_VERSION="2.1.1"
+INSTALLER_VERSION="2.1.2"
 RAW_INSTALL_URL="https://raw.githubusercontent.com/mohamadalira/token-reward-bot/main/install.sh"
 
 # curl | bash: stdin is the pipe — read would consume script lines (broken prompts).
@@ -71,12 +71,41 @@ fresh_install() {
     if command -v docker &>/dev/null && [[ -f "${dir}/docker-compose.yml" ]]; then
         (cd "$dir" && docker compose down --remove-orphans 2>/dev/null) || true
     fi
-    # Free ports if old process still holds them
+    free_web_ports
     fuser -k 8000/tcp 2>/dev/null || true
     fuser -k 3000/tcp 2>/dev/null || true
+    rm -rf "$dir"
+}
+
+free_web_ports() {
+    log "Azad kardan port 80 va 443..."
+
+    for svc in nginx apache2 apache caddy lighttpd httpd; do
+        systemctl stop "$svc" 2>/dev/null || true
+        systemctl disable "$svc" 2>/dev/null || true
+    done
+
+    # Other Docker containers on 80/443
+    local cid
+    for cid in $(docker ps -q 2>/dev/null); do
+        if docker port "$cid" 2>/dev/null | grep -qE ':(80|443)->'; then
+            warn "Stopping container $cid (uses port 80/443)"
+            docker rm -f "$cid" 2>/dev/null || true
+        fi
+    done
+
+    apt-get install -y -qq psmisc 2>/dev/null || true
+
+    if command -v ss &>/dev/null; then
+        if ss -tlnp 2>/dev/null | grep -qE ':80\s'; then
+            warn "Port 80 occupied — killing process..."
+            ss -tlnp 2>/dev/null | grep ':80 ' || true
+        fi
+    fi
+
     fuser -k 80/tcp 2>/dev/null || true
     fuser -k 443/tcp 2>/dev/null || true
-    rm -rf "$dir"
+    sleep 2
 }
 
 clone_project() {
@@ -450,7 +479,8 @@ done
 log "راه‌اندازی Backend و Mini App..."
 docker compose up -d backend mini-app
 
-log "راه‌اندازی Nginx (HTTP)..."
+log "rahandazi Nginx (HTTP)..."
+free_web_ports
 docker compose up -d nginx
 
 # ─── SSL with Certbot ─────────────────────────────────────────
