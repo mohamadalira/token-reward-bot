@@ -38,11 +38,15 @@ chmod +x install.sh
 sudo bash install.sh
 ```
 
-یا بدون پرامپت:
+نصب کامل بدون هیچ سوالی (پیشنهادی):
 
 ```bash
-sudo BOT_TOKEN="YOUR_TOKEN" ADMIN_IDS="123456789" bash install.sh
+curl -fsSL https://raw.githubusercontent.com/mohamadalira/token-reward-bot/main/install.sh -o install.sh
+chmod +x install.sh
+sudo BOT_TOKEN="YOUR_TOKEN" ADMIN_IDS="123456789" SKIP_SWAP=1 bash install.sh
 ```
+
+برای ساخت Mini App: `BUILD_MINIAPP=1` اضافه کنید.
 
 `curl ... | sudo bash` گاهی ورودی را خالی می‌خواند — از روش بالا استفاده کنید.
 

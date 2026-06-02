@@ -3,7 +3,7 @@
 # Version: 2.3.0
 set -euo pipefail
 
-INSTALLER_VERSION="2.3.2"
+INSTALLER_VERSION="2.3.3"
 INSTALL_DIR="/opt/tokenbot"
 REPO="mohamadalira/token-reward-bot"
 REPO_URL="https://github.com/${REPO}.git"
@@ -54,25 +54,25 @@ read_tty() {
   local __prompt="$2"
   local __buf=""
 
-  # Skip if already provided (env / export before running script)
   if [[ -n "${!__name:-}" ]]; then
     printf -v "$__name" '%s' "$(trim_input "${!__name}")"
     return 0
   fi
 
+  # Always print prompt to stderr (visible even when stdout is buffered)
+  echo "" >&2
+  echo -e "\033[1;36m>>>\033[0m ${__prompt}" >&2
+
   open_tty_fd
 
   if [[ -n "${TOKENBOT_TTY_FD}" ]]; then
-    read -r -p "$__prompt" __buf <&"${TOKENBOT_TTY_FD}" || true
-  fi
-  if [[ -z "$__buf" ]] && [[ -r /dev/tty ]]; then
-    read -r -p "$__prompt" __buf </dev/tty || true
-  fi
-  if [[ -z "$__buf" ]] && [[ -t 0 ]]; then
-    read -r -p "$__prompt" __buf || true
-  fi
-  if [[ -z "$__buf" ]]; then
-    read -r -p "$__prompt" __buf </dev/stdin || true
+    read -r __buf <&"${TOKENBOT_TTY_FD}" || true
+  elif [[ -r /dev/tty ]]; then
+    read -r __buf </dev/tty || true
+  elif [[ -t 0 ]]; then
+    read -r __buf || true
+  else
+    read -r __buf </dev/stdin || true
   fi
 
   __buf="$(trim_input "$__buf")"
@@ -150,17 +150,26 @@ install_docker() {
 }
 
 ensure_swap() {
-  if swapon --show 2>/dev/null | grep -q .; then
+  if [[ "${SKIP_SWAP:-}" == "1" ]]; then
+    log "Swap setup skipped (SKIP_SWAP=1)."
     return
   fi
-  if [[ ! -f /swapfile ]]; then
-    log "Adding 2GB swap (helps Docker build on small VPS)..."
-    fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048 status=progress
-    chmod 600 /swapfile
-    mkswap /swapfile
-    swapon /swapfile
-    grep -q '/swapfile' /etc/fstab 2>/dev/null || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  if swapon --show 2>/dev/null | grep -q .; then
+    log "Swap already active — skipping."
+    return
   fi
+  if [[ -f /swapfile ]]; then
+    log "Activating existing /swapfile..."
+    swapon /swapfile 2>/dev/null || warn "Could not enable /swapfile (continuing anyway)."
+    return
+  fi
+  log "Adding 2GB swap (may take 1-2 min — set SKIP_SWAP=1 to skip)..."
+  fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  grep -q '/swapfile' /etc/fstab 2>/dev/null || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  log "Swap enabled."
 }
 
 # Only stop/remove OUR containers — never touch apache, nginx, or other bots
@@ -376,29 +385,41 @@ main() {
   echo ""
 
   require_root
-  open_tty_fd
   install_docker
+
+  log "Checking swap..."
   ensure_swap
 
+  log "Configuration..."
   if [[ -n "${BOT_TOKEN:-}" ]]; then
     BOT_TOKEN="$(trim_input "$BOT_TOKEN")"
     log "Using BOT_TOKEN from environment"
   else
-    prompt_required BOT_TOKEN "Telegram Bot Token: "
+    prompt_required BOT_TOKEN "Telegram Bot Token"
   fi
 
   if [[ -n "${ADMIN_IDS:-}" ]]; then
     ADMIN_IDS="$(trim_input "$ADMIN_IDS")"
     log "Using ADMIN_IDS from environment"
   else
-    prompt_required ADMIN_IDS "Admin Telegram IDs (comma-separated): "
+    prompt_required ADMIN_IDS "Admin Telegram IDs (comma-separated)"
   fi
 
-  echo ""
-  log "Domain is OPTIONAL — you can install with IP:PORT only."
-  log "Add domain + SSL later: bash scripts/add-domain.sh"
-  echo ""
-  read_tty DOMAIN "Domain (Enter = skip, IP-only install): "
+  # If token+admin from env: no more prompts unless you set ASK_PROMPTS=1
+  local __quick=0
+  if [[ -n "${BOT_TOKEN:-}" && -n "${ADMIN_IDS:-}" && "${ASK_PROMPTS:-}" != "1" ]]; then
+    __quick=1
+    DOMAIN="${DOMAIN:-}"
+    BUILD_MINIAPP="${BUILD_MINIAPP:-0}"
+    PLISIO_API_KEY="${PLISIO_API_KEY:-}"
+    log "Quick install: DOMAIN=${DOMAIN:-empty} BUILD_MINIAPP=${BUILD_MINIAPP} (set ASK_PROMPTS=1 for questions)"
+  else
+    echo ""
+    log "Domain is OPTIONAL — press Enter to skip."
+    log "Add domain later: bash /opt/tokenbot/scripts/add-domain.sh"
+    echo ""
+    read_tty DOMAIN "Domain (Enter = skip)"
+  fi
 
   SERVER_IP="$(detect_public_ip)"
   USE_SSL=false
@@ -443,11 +464,15 @@ main() {
     WEBHOOK_URL="http://${SERVER_IP}:${TOKENBOT_HTTP_PORT}/webhook/plisio"
     log "No domain — Mini App URL: ${WEBAPP_URL}"
     log "Bot works via polling; Mini App needs this URL in @BotFather."
-    read_tty BUILD_ANS "Build Mini App now? (y/N): "
-    [[ "${BUILD_ANS,,}" == "y" ]] && BUILD_MINIAPP=1
+    if [[ "$__quick" != "1" ]]; then
+      read_tty BUILD_ANS "Build Mini App now? (y/N)"
+      [[ "${BUILD_ANS,,}" == "y" ]] && BUILD_MINIAPP=1
+    fi
   fi
 
-  read_tty PLISIO_API_KEY "Plisio API Token (Enter to skip): "
+  if [[ "$__quick" != "1" ]]; then
+    read_tty PLISIO_API_KEY "Plisio API Token (Enter to skip)"
+  fi
   PLISIO_ENABLED=$([[ -n "${PLISIO_API_KEY:-}" ]] && echo true || echo false)
 
   echo ""
