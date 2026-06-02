@@ -181,6 +181,30 @@ cleanup_tokenbot_only() {
   docker rm -f tokenbot_backend tokenbot_postgres tokenbot_redis tokenbot_nginx tokenbot_miniapp tokenbot_certbot 2>/dev/null || true
 }
 
+# Keep DB/Redis passwords when reinstalling (docker volumes survive rm -rf /opt/tokenbot)
+ENV_BACKUP_FILE=""
+backup_env_secrets() {
+  if [[ -f "${INSTALL_DIR}/.env" ]]; then
+    ENV_BACKUP_FILE="$(mktemp /tmp/tokenbot-env.XXXXXX)"
+    cp "${INSTALL_DIR}/.env" "${ENV_BACKUP_FILE}"
+    log "Backed up existing .env secrets (postgres volume kept)."
+  fi
+}
+
+restore_env_secrets() {
+  [[ -n "${ENV_BACKUP_FILE}" && -f "${ENV_BACKUP_FILE}" ]] || return 0
+  local k v
+  for k in POSTGRES_PASSWORD REDIS_PASSWORD API_SECRET_KEY; do
+    v="$(grep -m1 "^${k}=" "${ENV_BACKUP_FILE}" 2>/dev/null | cut -d= -f2- || true)"
+    if [[ -n "$v" ]]; then
+      printf -v "$k" '%s' "$v"
+      log "Reusing ${k} from previous install"
+    fi
+  done
+  rm -f "${ENV_BACKUP_FILE}"
+  ENV_BACKUP_FILE=""
+}
+
 download_source() {
   log "Downloading source..."
   rm -rf "$INSTALL_DIR"
@@ -551,9 +575,11 @@ main() {
   log "Other services on 80/443 will NOT be stopped."
   echo ""
 
+  backup_env_secrets
   cleanup_tokenbot_only
   download_source
   cd "$INSTALL_DIR"
+  restore_env_secrets
 
   export BOT_TOKEN ADMIN_IDS DOMAIN SSL_EMAIL SERVER_IP
   export TOKENBOT_HTTP_PORT TOKENBOT_HTTPS_PORT

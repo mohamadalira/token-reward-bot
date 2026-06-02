@@ -46,6 +46,7 @@ port=$(grep '^TOKENBOT_HTTP_PORT=' .env 2>/dev/null | cut -d= -f2 || echo 8080)
 curl -fsS --max-time 5 "http://127.0.0.1:${port}/api/health" 2>&1 || echo "health check failed on port ${port}"
 
 echo ""
-echo "=== Fix: restart backend + drop webhook ==="
-echo "  docker compose restart backend"
-echo "  # or: bash scripts/fix-bot.sh"
+echo "=== Common fixes ==="
+echo "  DB password mismatch:  bash scripts/fix-db-password.sh"
+echo "  Webhook / polling:     bash scripts/fix-bot.sh"
+echo "  Fresh DB (data loss):  RESET_DB=1 bash scripts/fix-db-password.sh"
