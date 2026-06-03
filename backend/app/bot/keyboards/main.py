@@ -13,8 +13,12 @@ def main_menu_keyboard(is_admin: bool = False, is_sponsor: bool = False) -> Repl
         [KeyboardButton(text=i18n.t("btn_shop")), KeyboardButton(text=i18n.t("btn_my_configs"))],
         [KeyboardButton(text=i18n.t("btn_leaderboard")), KeyboardButton(text=i18n.t("btn_support"))],
         [KeyboardButton(text=i18n.t("btn_rules"))],
-        [KeyboardButton(text=i18n.t("btn_mini_app"), web_app=WebAppInfo(url=settings.webapp_url))],
     ]
+    # Telegram WebApp buttons require HTTPS — skip on IP-only http installs
+    if settings.webapp_url.startswith("https://"):
+        rows.append(
+            [KeyboardButton(text=i18n.t("btn_mini_app"), web_app=WebAppInfo(url=settings.webapp_url))]
+        )
     if is_sponsor:
         rows.append([KeyboardButton(text=i18n.t("sponsor_menu"))])
     if is_admin:

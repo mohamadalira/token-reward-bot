@@ -44,6 +44,14 @@ async def _check_mandatory(bot: Bot, session: AsyncSession, user_id: int) -> tup
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, session: AsyncSession, bot: Bot):
+    try:
+        await _cmd_start_impl(message, session, bot)
+    except Exception:
+        logger.exception("cmd_start failed for user %s", message.from_user.id)
+        await message.answer(i18n.t("error"))
+
+
+async def _cmd_start_impl(message: Message, session: AsyncSession, bot: Bot):
     referred_by_id: Optional[int] = None
     args = message.text.split(maxsplit=1)
     if len(args) > 1 and args[1].startswith("ref_"):
