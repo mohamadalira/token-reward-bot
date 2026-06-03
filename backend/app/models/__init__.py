@@ -107,18 +107,6 @@ class User(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
-    # Users this person invited (self-referential; separate name from Referral records)
-    invited_users: Mapped[list["User"]] = relationship(
-        "User",
-        foreign_keys=[referred_by_id],
-        back_populates="referrer",
-    )
-    referrer: Mapped[Optional["User"]] = relationship(
-        "User",
-        remote_side=[id],
-        foreign_keys=[referred_by_id],
-        back_populates="invited_users",
-    )
     referrals: Mapped[list["Referral"]] = relationship(
         "Referral", back_populates="referrer", foreign_keys="Referral.referrer_id"
     )

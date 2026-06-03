@@ -19,4 +19,4 @@ RUN mkdir -p /app/uploads
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "alembic upgrade head && python -m app.main"]
+CMD ["sh", "-c", "alembic upgrade head && echo '>>> Starting application...' && exec python -m app.main"]

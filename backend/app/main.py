@@ -52,9 +52,12 @@ async def run_bot(bot: Bot, dp):
 
 
 async def main():
+    logger.info("Starting Token Reward Bot...")
     await init_db()
+    logger.info("Database ready.")
     await setup_defaults()
 
+    logger.info("Creating bot dispatcher...")
     bot, dp = create_bot()
     api_app = create_api_app()
 
@@ -77,5 +80,8 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Shutting down...")
+    except Exception:
+        logger.exception("Fatal startup error")
+        raise
     finally:
         asyncio.run(close_redis())
