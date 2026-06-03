@@ -7,6 +7,7 @@ def test_default_settings_exist():
         "bot_mode",
         "referral_reward",
         "token_price_usd",
+        "token_price_toman",
         "min_campaign_tokens",
         "max_campaign_tokens",
         "min_reward_per_join",

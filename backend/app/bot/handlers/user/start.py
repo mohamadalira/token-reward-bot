@@ -13,7 +13,6 @@ from app.bot.keyboards.inline_menus import (
     earn_mode_keyboard,
     shop_categories_keyboard,
     shop_products_keyboard,
-    sponsor_intro_keyboard,
     task_channel_keyboard,
     user_main_menu,
 )
@@ -47,6 +46,20 @@ async def _check_mandatory(bot: Bot, session: AsyncSession, user_id: int) -> tup
     return True, []
 
 
+async def _menu_kb(session: AsyncSession, texts: TextService, user_id: int, user=None):
+    settings_repo = SettingsRepository(session)
+    sponsor_enabled = await settings_repo.get_bool("sponsor_mode_enabled", True)
+    if user is None:
+        user = await UserRepository(session).get_by_id(user_id)
+    return await user_main_menu(
+        texts,
+        is_admin=user_id in settings.admin_id_list,
+        is_sponsor=bool(user and user.is_sponsor),
+        sponsor_enabled=sponsor_enabled,
+        webapp_url=settings.webapp_url,
+    )
+
+
 async def _send_main_menu(
     message: Message,
     session: AsyncSession,
@@ -55,16 +68,7 @@ async def _send_main_menu(
     edit: bool = False,
 ) -> None:
     texts = await _texts(session)
-    user_repo = UserRepository(session)
-    user = await user_repo.get_by_id(user_id)
-    is_admin = user_id in settings.admin_id_list
-    is_sponsor = user.is_sponsor if user else False
-    kb = await user_main_menu(
-        texts,
-        is_admin=is_admin,
-        is_sponsor=is_sponsor,
-        webapp_url=settings.webapp_url,
-    )
+    kb = await _menu_kb(session, texts, user_id)
     title = await texts.t("main_menu")
     if edit and message.text:
         await message.edit_text(title, reply_markup=kb)
@@ -116,12 +120,7 @@ async def cmd_start(message: Message, session: AsyncSession, bot: Bot):
         )
         if "{name}" in welcome:
             welcome = welcome.format(name=message.from_user.first_name or "")
-        kb = await user_main_menu(
-            texts,
-            is_admin=user.is_admin,
-            is_sponsor=user.is_sponsor,
-            webapp_url=settings.webapp_url,
-        )
+        kb = await _menu_kb(session, texts, message.from_user.id, user)
         await message.answer(welcome, reply_markup=kb)
     except Exception:
         logger.exception("cmd_start failed for user %s", message.from_user.id)
@@ -133,12 +132,7 @@ async def menu_main(callback: CallbackQuery, session: AsyncSession):
     texts = await _texts(session)
     user_repo = UserRepository(session)
     user = await user_repo.get_by_id(callback.from_user.id)
-    kb = await user_main_menu(
-        texts,
-        is_admin=callback.from_user.id in settings.admin_id_list,
-        is_sponsor=bool(user and user.is_sponsor),
-        webapp_url=settings.webapp_url,
-    )
+    kb = await _menu_kb(session, texts, callback.from_user.id, user)
     await callback.message.edit_text(await texts.t("main_menu"), reply_markup=kb)
     await callback.answer()
 
@@ -392,17 +386,18 @@ async def menu_configs(callback: CallbackQuery, session: AsyncSession):
 
 @router.callback_query(F.data == "menu:sponsor")
 async def menu_sponsor(callback: CallbackQuery, session: AsyncSession):
+    from app.bot.handlers.sponsor.inline import sponsor_home
+    await sponsor_home(callback, session)
+
+
+@router.callback_query(F.data == "menu:admin")
+async def menu_admin(callback: CallbackQuery, session: AsyncSession):
     texts = await _texts(session)
-    settings_repo = SettingsRepository(session)
-    if not await settings_repo.get_bool("sponsor_mode_enabled", True):
-        await callback.answer(await texts.t("error"), show_alert=True)
+    if callback.from_user.id not in settings.admin_id_list:
+        await callback.answer(await texts.t("admin_only"), show_alert=True)
         return
-    body = await texts.t("sponsor_intro")
-    await callback.message.edit_text(
-        body,
-        reply_markup=await sponsor_intro_keyboard(texts),
-    )
-    await callback.answer()
+    from app.bot.handlers.admin.inline import admin_home
+    await admin_home(callback, session)
 
 
 @router.callback_query(F.data == "menu:support")
@@ -428,36 +423,4 @@ async def menu_rules(callback: CallbackQuery, session: AsyncSession):
         await texts.t("rules", rules=rules_text),
         reply_markup=back_main_button(back),
     )
-    await callback.answer()
-
-
-@router.callback_query(F.data == "menu:admin")
-async def menu_admin_hint(callback: CallbackQuery, session: AsyncSession):
-    texts = await _texts(session)
-    if callback.from_user.id not in settings.admin_id_list:
-        await callback.answer(await texts.t("admin_only"), show_alert=True)
-        return
-    from app.bot.keyboards.main import admin_menu_keyboard
-    await callback.message.answer(await texts.t("admin_menu"), reply_markup=admin_menu_keyboard())
-    await callback.answer()
-
-
-@router.callback_query(F.data == "menu:sponsor_panel")
-async def menu_sponsor_panel(callback: CallbackQuery, session: AsyncSession):
-    from app.bot.keyboards.main import sponsor_menu_keyboard
-    texts = await _texts(session)
-    await callback.message.answer(
-        await texts.t("sponsor_menu"),
-        reply_markup=sponsor_menu_keyboard(),
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data == "sponsor:apply")
-async def sponsor_apply(callback: CallbackQuery, session: AsyncSession, bot: Bot):
-    from app.services import SponsorService
-    texts = await _texts(session)
-    svc = SponsorService(session)
-    ok, msg = await svc.request_sponsor(callback.from_user.id)
-    await callback.message.edit_text(msg)
     await callback.answer()

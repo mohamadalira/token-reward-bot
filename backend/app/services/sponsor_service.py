@@ -10,7 +10,7 @@ from app.core.config import get_settings
 from app.locales import get_i18n
 from app.models import CampaignStatus, PaymentMethod, PaymentStatus, SponsorStatus
 from app.repositories import SettingsRepository, SponsorRepository, UserRepository
-from app.utils.telegram_helpers import validate_bot_channel_admin
+from app.utils.channel_resolver import validate_channel_for_bot
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -24,31 +24,25 @@ class SponsorService:
         self.users = UserRepository(session)
         self.settings_repo = SettingsRepository(session)
 
-    async def request_sponsor(self, user_id: int) -> tuple[bool, str]:
+    async def ensure_sponsor(self, user_id: int) -> tuple[bool, str]:
+        """Auto-approve sponsor — no admin approval required."""
         existing = await self.sponsors.get_by_user_id(user_id)
         if existing:
-            if existing.status == SponsorStatus.APPROVED:
-                return True, i18n.t("sponsor_approved")
-            if existing.status == SponsorStatus.PENDING:
-                return False, i18n.t("sponsor_pending")
-            if existing.status == SponsorStatus.BANNED:
+            if existing.status == SponsorStatus.BANNED or existing.is_frozen:
                 return False, i18n.t("banned")
+            if existing.status != SponsorStatus.APPROVED:
+                existing.status = SponsorStatus.APPROVED
         else:
-            await self.sponsors.create(user_id)
+            existing = await self.sponsors.create(user_id)
+            existing.status = SponsorStatus.APPROVED
         user = await self.users.get_by_id(user_id)
         if user:
             user.is_sponsor = True
         await self.session.commit()
+        return True, i18n.t("sponsor_approved")
 
-        for admin_id in settings.admin_id_list:
-            try:
-                from aiogram import Bot
-                bot = Bot(token=settings.bot_token)
-                await bot.send_message(admin_id, f"📢 درخواست اسپانسری جدید\n🆔 {user_id}")
-                await bot.session.close()
-            except Exception:
-                pass
-        return True, i18n.t("sponsor_pending")
+    async def request_sponsor(self, user_id: int) -> tuple[bool, str]:
+        return await self.ensure_sponsor(user_id)
 
     async def approve_sponsor(self, sponsor_id: int, admin_id: int) -> None:
         sponsor = await self.sponsors.get_by_id(sponsor_id)
@@ -75,23 +69,54 @@ class SponsorService:
             available=max(0, available),
         )
 
+    async def get_dashboard_text(self, user_id: int) -> str:
+        sponsor = await self.sponsors.get_by_user_id(user_id)
+        if not sponsor:
+            return i18n.t("error")
+        active = [
+            c for c in sponsor.campaigns
+            if c.status == CampaignStatus.ACTIVE
+        ]
+        total_joins = sum(c.total_joins for c in sponsor.campaigns)
+        total_views = sum(c.total_views for c in sponsor.campaigns)
+        conv = (total_joins / total_views * 100) if total_views else 0
+        remaining = sum(c.remaining_budget for c in active)
+        wallet = await self.get_wallet_info(user_id)
+        return i18n.t(
+            "sponsor_dashboard",
+            wallet=wallet,
+            joins=total_joins,
+            conversion=f"{conv:.1f}",
+            remaining=remaining,
+            active_campaigns=len(active),
+        )
+
     async def validate_campaign_channel(
         self, bot: Bot, channel_id: str
     ) -> tuple[bool, Optional[str], Optional[dict]]:
-        ok, error = await validate_bot_channel_admin(bot, channel_id)
+        ok, error, info = await validate_channel_for_bot(bot, channel_id)
         if not ok:
-            return False, error, None
-        try:
-            chat = await bot.get_chat(channel_id)
-            invite = await bot.create_chat_invite_link(channel_id)
-            return True, None, {
-                "channel_id": str(chat.id),
-                "title": chat.title or channel_id,
-                "username": chat.username,
-                "invite_link": invite.invite_link,
-            }
-        except Exception as e:
-            return False, str(e), None
+            logger.warning("validate_campaign_channel failed: %s", error)
+        return ok, error, info
+
+    async def create_campaign_from_info(
+        self,
+        user_id: int,
+        channel_info: dict,
+        reward_per_join: int,
+        total_budget: int,
+        bot: Bot,
+        use_wallet: bool = True,
+    ) -> tuple[bool, str, Optional[int]]:
+        return await self.create_campaign(
+            user_id,
+            channel_info.get("channel_id", ""),
+            reward_per_join,
+            total_budget,
+            bot,
+            use_wallet=use_wallet,
+            channel_info=channel_info,
+        )
 
     async def create_campaign(
         self,
@@ -101,7 +126,9 @@ class SponsorService:
         total_budget: int,
         bot: Bot,
         use_wallet: bool = False,
+        channel_info: Optional[dict] = None,
     ) -> tuple[bool, str, Optional[int]]:
+        await self.ensure_sponsor(user_id)
         sponsor = await self.sponsors.get_by_user_id(user_id)
         if not sponsor or sponsor.status != SponsorStatus.APPROVED:
             return False, i18n.t("error"), None
@@ -123,9 +150,10 @@ class SponsorService:
         if reward_per_join < min_reward or reward_per_join > max_reward:
             return False, f"پاداش باید بین {min_reward} تا {max_reward} باشه", None
 
-        ok, error, channel_info = await self.validate_campaign_channel(bot, channel_id)
-        if not ok:
-            return False, i18n.t("campaign_validation_fail", error=error), None
+        if not channel_info:
+            ok, error, channel_info = await self.validate_campaign_channel(bot, channel_id)
+            if not ok:
+                return False, i18n.t("campaign_validation_fail", error=error), None
 
         exp_days = await self.settings_repo.get_int("campaign_expiration_days", 30)
         expires_at = datetime.now(timezone.utc) + timedelta(days=exp_days)
@@ -166,6 +194,19 @@ class SponsorService:
         if use_wallet:
             sponsor.total_consumed += total_budget
         await self.session.commit()
+
+        for admin_id in settings.admin_id_list:
+            try:
+                notify_bot = Bot(token=settings.bot_token)
+                await notify_bot.send_message(
+                    admin_id,
+                    f"🚀 کمپین جدید #{campaign.id}\n"
+                    f"👤 {user_id}\n📣 {channel_info['title']}",
+                )
+                await notify_bot.session.close()
+            except Exception:
+                logger.exception("admin campaign notify failed")
+
         return True, i18n.t("campaign_created"), campaign.id
 
     async def pause_campaign(self, campaign_id: int, user_id: int) -> bool:

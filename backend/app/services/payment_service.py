@@ -36,10 +36,20 @@ class PlisioService:
             return key
         return await self._get_api_key()
 
+    async def _callback_url(self) -> str:
+        custom = await self.settings.get("plisio_callback_url")
+        if custom:
+            return custom
+        if settings.webhook_url:
+            return settings.webhook_url
+        return f"{settings.webapp_url}{settings.webhook_path}"
+
     async def test_connection(self) -> tuple[bool, str]:
         api_key = await self._get_api_key()
         if not api_key:
             return False, "API Key تنظیم نشده"
+        secret = await self._get_secret()
+        callback = await self._callback_url()
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.get(
@@ -48,9 +58,17 @@ class PlisioService:
                 )
                 data = resp.json()
                 if data.get("status") == "success":
-                    return True, "اتصال موفق ✅"
-                return False, data.get("data", {}).get("message", "خطا در اتصال")
+                    msg = "اتصال API موفق ✅"
+                    if not secret:
+                        msg += "\n⚠️ Secret Key تنظیم نشده"
+                    msg += f"\n🔗 Callback: {callback}"
+                    return True, msg
+                err = data.get("data", {}).get("message", "خطا در اتصال")
+                if "secret" in err.lower() or "domain" in err.lower():
+                    err += "\n\nSecret Key و Callback URL و Domain Verification را در پنل Plisio بررسی کن."
+                return False, err
         except Exception as e:
+            logger.exception("Plisio test_connection failed")
             return False, str(e)
 
     async def create_invoice(
@@ -60,8 +78,11 @@ class PlisioService:
         campaign_id: Optional[int] = None,
         currency: str = "USD",
         psys_cid: str = "BTC",
+        token_amount: Optional[int] = None,
     ) -> tuple[bool, str, Optional[dict]]:
         api_key = await self._get_api_key()
+        if not api_key:
+            return False, "API Key تنظیم نشده", None
         order_name = f"campaign_{campaign_id or 'wallet'}_{sponsor_id}"
         params = {
             "api_key": api_key,
@@ -70,17 +91,20 @@ class PlisioService:
             "source_currency": currency,
             "source_amount": amount_usd,
             "currency": psys_cid,
-            "callback_url": settings.webhook_url or f"{settings.webapp_url}{settings.webhook_path}",
+            "callback_url": await self._callback_url(),
         }
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.get(f"{PLISIO_API}/invoices/new", params=params)
                 data = resp.json()
                 if data.get("status") != "success":
-                    return False, data.get("data", {}).get("message", "خطا"), None
+                    err = data.get("data", {}).get("message", "خطا")
+                    logger.warning("Plisio invoice error: %s", err)
+                    return False, err, None
                 invoice = data["data"]
-                token_price = await self.settings.get_float("token_price_usd", 0.01)
-                token_amount = int(amount_usd / token_price) if token_price else 0
+                if token_amount is None:
+                    token_price = await self.settings.get_float("token_price_usd", 0.01)
+                    token_amount = int(amount_usd / token_price) if token_price else 0
                 payment = await self.sponsors.create_payment(
                     sponsor_id=sponsor_id,
                     campaign_id=campaign_id,
@@ -152,6 +176,27 @@ class ManualPaymentService:
             instructions=await self.settings.get("manual_payment_instructions", ""),
         )
 
+    async def submit_wallet_deposit(
+        self,
+        sponsor_id: int,
+        token_amount: int,
+        amount_toman: int,
+        file_id: str,
+        note: Optional[str] = None,
+    ) -> int:
+        payment = await self.sponsors.create_payment(
+            sponsor_id=sponsor_id,
+            campaign_id=None,
+            amount_usd=0.0,
+            token_amount=token_amount,
+            method=PaymentMethod.MANUAL_CARD,
+            status=PaymentStatus.PENDING,
+            receipt_file_id=file_id,
+            receipt_note=note or f"{amount_toman:,} تومان",
+        )
+        await self.session.commit()
+        return payment.id
+
     async def submit_receipt(
         self,
         sponsor_id: int,
@@ -191,6 +236,10 @@ class ManualPaymentService:
                     campaign.status = CampaignStatus.ACTIVE
                     if campaign.channel:
                         campaign.channel.is_enabled = True
+        from app.repositories import UserRepository
+        await UserRepository(self.session).log_admin_action(
+            admin_id, "approve_payment", "payment", str(payment_id)
+        )
         await self.session.commit()
         return True
 
@@ -200,5 +249,9 @@ class ManualPaymentService:
             return False
         payment.status = PaymentStatus.REJECTED
         payment.admin_note = note
+        from app.repositories import UserRepository
+        await UserRepository(self.session).log_admin_action(
+            admin_id, "reject_payment", "payment", str(payment_id)
+        )
         await self.session.commit()
         return True

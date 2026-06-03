@@ -180,3 +180,37 @@ async def cancel_configs(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.edit_text(i18n.t("cancelled"))
     await callback.answer()
+
+
+async def categories_menu_inline(callback: CallbackQuery, session: AsyncSession):
+    from app.bot.navigation.ui import btn, edit_screen, kb
+
+    cats = CategoryRepository(session)
+    items = await cats.list_all()
+    lines = ["📂 دسته‌بندی‌های فروشگاه:\n"]
+    rows = []
+    for c in items:
+        status = "✅" if c.is_active else "❌"
+        lines.append(f"{status} #{c.id} {c.name} — {c.default_token_cost} توکن")
+        rows.append([btn(f"🗑 #{c.id}", f"adm:shop:delcat:{c.id}")])
+    rows.append([btn("➕ دسته جدید", "adm:shop:addcat")])
+    await edit_screen(
+        callback,
+        "\n".join(lines) if items else "دسته‌ای ثبت نشده.",
+        kb(*rows, back="adm:shop"),
+    )
+
+
+async def add_config_start_inline(
+    callback: CallbackQuery, session: AsyncSession, state: FSMContext
+):
+    from app.bot.navigation.ui import btn, edit_screen, kb
+
+    cats = CategoryRepository(session)
+    categories = await cats.list_active()
+    if not categories:
+        await callback.answer("اول یک دسته بساز", show_alert=True)
+        return
+    rows = [[btn(c.name, f"adm_cfg:cat:{c.id}")] for c in categories]
+    await state.set_state(ConfigAddStates.pick_category)
+    await edit_screen(callback, "دسته را انتخاب کن 👇", kb(*rows, back="adm:shop"))

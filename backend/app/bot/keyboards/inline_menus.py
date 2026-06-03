@@ -8,6 +8,7 @@ async def user_main_menu(
     *,
     is_admin: bool = False,
     is_sponsor: bool = False,
+    sponsor_enabled: bool = True,
     webapp_url: str = "",
 ) -> InlineKeyboardMarkup:
     rows = [
@@ -19,12 +20,16 @@ async def user_main_menu(
             InlineKeyboardButton(text=await texts.t("btn_shop"), callback_data="menu:shop"),
             InlineKeyboardButton(text=await texts.t("btn_my_configs"), callback_data="menu:configs"),
         ],
-        [
-            InlineKeyboardButton(text=await texts.t("btn_sponsor"), callback_data="menu:sponsor"),
-            InlineKeyboardButton(text=await texts.t("btn_support"), callback_data="menu:support"),
-        ],
-        [InlineKeyboardButton(text=await texts.t("btn_rules"), callback_data="menu:rules")],
     ]
+    support_row = [InlineKeyboardButton(text=await texts.t("btn_support"), callback_data="menu:support")]
+    if sponsor_enabled:
+        rows.append([
+            InlineKeyboardButton(text=await texts.t("btn_sponsor"), callback_data="spn:home"),
+            InlineKeyboardButton(text=await texts.t("btn_support"), callback_data="menu:support"),
+        ])
+    else:
+        rows.append(support_row)
+    rows.append([InlineKeyboardButton(text=await texts.t("btn_rules"), callback_data="menu:rules")])
     if webapp_url.startswith("https://"):
         rows.append([
             InlineKeyboardButton(
@@ -32,13 +37,9 @@ async def user_main_menu(
                 web_app=WebAppInfo(url=webapp_url),
             )
         ])
-    if is_sponsor:
-        rows.append([
-            InlineKeyboardButton(text=await texts.t("sponsor_menu"), callback_data="menu:sponsor_panel")
-        ])
     if is_admin:
         rows.append([
-            InlineKeyboardButton(text=await texts.t("admin_menu"), callback_data="menu:admin")
+            InlineKeyboardButton(text=await texts.t("admin_menu"), callback_data="adm:home")
         ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
