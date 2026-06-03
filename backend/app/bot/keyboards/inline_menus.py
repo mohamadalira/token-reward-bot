@@ -116,7 +116,11 @@ async def confirm_purchase_keyboard(
 async def check_membership_keyboard(texts: TextService, channels: list) -> InlineKeyboardMarkup:
     buttons = []
     for ch in channels:
-        link = ch.invite_link or f"https://t.me/{ch.channel_username}"
+        link = ch.invite_link
+        if not link and ch.channel_username:
+            link = f"https://t.me/{ch.channel_username.lstrip('@')}"
+        if not link:
+            continue
         buttons.append([InlineKeyboardButton(text=f"📢 {ch.title}", url=link)])
     buttons.append([
         InlineKeyboardButton(text=await texts.t("check_membership"), callback_data="check_membership")

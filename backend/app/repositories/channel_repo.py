@@ -54,6 +54,21 @@ class ChannelRepository:
         if ch:
             await self.session.delete(ch)
 
+    async def clear_all_mandatory(self) -> int:
+        result = await self.session.execute(select(MandatoryChannel))
+        channels = list(result.scalars().all())
+        for ch in channels:
+            await self.session.delete(ch)
+        return len(channels)
+
+    async def disable_mandatory(self, channel_db_id: int) -> None:
+        result = await self.session.execute(
+            select(MandatoryChannel).where(MandatoryChannel.id == channel_db_id)
+        )
+        ch = result.scalar_one_or_none()
+        if ch:
+            ch.is_enabled = False
+
     async def get_sponsor_channels(self, enabled_only: bool = True) -> list[SponsorChannel]:
         stmt = select(SponsorChannel).options(selectinload(SponsorChannel.campaign))
         if enabled_only:

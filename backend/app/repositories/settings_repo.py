@@ -16,7 +16,7 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "welcome_message": "به ربات خوش اومدی 👋",
     "support_username": "support",
     "rules_text": "قوانین استفاده از ربات",
-    "force_join_enabled": "true",
+    "force_join_enabled": "false",
     "use_persian_numbers": "true",
     "use_jalali_dates": "true",
     "min_campaign_tokens": "1000",

@@ -334,17 +334,44 @@ async def referral_save(message: Message, state: FSMContext, session: AsyncSessi
 
 @router.callback_query(F.data == ADM_MANDATORY)
 async def mandatory_list(callback: CallbackQuery, session: AsyncSession):
+    settings_repo = SettingsRepository(session)
+    force_on = await settings_repo.get_bool("force_join_enabled", False)
     repo = ChannelRepository(session)
     channels = await repo.get_mandatory_channels(enabled_only=False)
-    lines = ["📢 کانال‌های اجباری\n"]
-    rows = []
+    status = "✅ فعال" if force_on else "❌ غیرفعال"
+    lines = [f"📢 کانال‌های اجباری\n\nسیستم عضویت اجباری: {status}\n"]
+    rows = [
+        [btn(f"{'⛔ خاموش' if force_on else '✅ روشن'} عضویت اجباری", "adm:mandatory:toggle_force")],
+    ]
     for ch in channels:
         lines.append(f"{'✅' if ch.is_enabled else '❌'} #{ch.id} {ch.title}")
         rows.append([btn(f"🗑 #{ch.id}", f"adm:mandatory:del:{ch.id}")])
     rows.append([btn("➕ افزودن", ADM_MANDATORY_ADD)])
+    if channels:
+        rows.append([btn("🗑 حذف همه کانال‌ها", "adm:mandatory:clearall")])
     markup = kb(*rows, back=ADM_SETTINGS)
-    await edit_screen(callback, "\n".join(lines) if channels else "📢 کانالی ثبت نشده.", markup)
+    await edit_screen(callback, "\n".join(lines) if channels else lines[0] + "\nکانالی ثبت نشده.", markup)
     await callback.answer()
+
+
+@router.callback_query(F.data == "adm:mandatory:toggle_force")
+async def mandatory_toggle_force(callback: CallbackQuery, session: AsyncSession):
+    repo = SettingsRepository(session)
+    cur = await repo.get_bool("force_join_enabled", False)
+    await repo.set("force_join_enabled", "false" if cur else "true")
+    await session.commit()
+    await mandatory_list(callback, session)
+
+
+@router.callback_query(F.data == "adm:mandatory:clearall")
+async def mandatory_clear_all(callback: CallbackQuery, session: AsyncSession):
+    repo = ChannelRepository(session)
+    count = await repo.clear_all_mandatory()
+    settings_repo = SettingsRepository(session)
+    await settings_repo.set("force_join_enabled", "false")
+    await session.commit()
+    await callback.answer(f"✅ {count} کانال حذف شد — عضویت اجباری خاموش شد", show_alert=True)
+    await mandatory_list(callback, session)
 
 
 @router.callback_query(F.data.startswith("adm:mandatory:del:"))

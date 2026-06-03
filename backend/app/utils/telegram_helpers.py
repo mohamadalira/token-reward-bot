@@ -7,6 +7,16 @@ from aiogram.exceptions import TelegramBadRequest
 logger = logging.getLogger(__name__)
 
 
+async def channel_is_accessible(bot: Bot, channel_id: str) -> bool:
+    """True if the bot can resolve the channel (exists and bot has access)."""
+    try:
+        await bot.get_chat(channel_id)
+        return True
+    except TelegramBadRequest as e:
+        logger.warning("Channel not accessible %s: %s", channel_id, e)
+        return False
+
+
 async def check_channel_membership(
     bot: Bot, user_id: int, channel_id: str
 ) -> bool:

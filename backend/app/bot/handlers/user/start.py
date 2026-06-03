@@ -21,7 +21,7 @@ from app.repositories import CategoryRepository, ChannelRepository, ShopReposito
 from app.repositories import SettingsRepository
 from app.services import ReferralService, ShopService, TaskService, TextService, TokenService
 from app.utils.formatters import format_number
-from app.utils.telegram_helpers import check_channel_membership
+from app.utils.telegram_helpers import channel_is_accessible, check_channel_membership
 
 logger = logging.getLogger(__name__)
 router = Router(name="user")
@@ -33,17 +33,36 @@ async def _texts(session: AsyncSession) -> TextService:
 
 
 async def _check_mandatory(bot: Bot, session: AsyncSession, user_id: int) -> tuple[bool, list]:
-    settings_repo = SettingsRepository(session)
-    if not await settings_repo.get_bool("force_join_enabled", True):
+    if user_id in settings.admin_id_list:
         return True, []
+
+    settings_repo = SettingsRepository(session)
+    if not await settings_repo.get_bool("force_join_enabled", False):
+        return True, []
+
     channels = ChannelRepository(session)
     mandatory = await channels.get_mandatory_channels()
     if not mandatory:
         return True, []
+
+    pending = []
     for ch in mandatory:
-        if not await check_channel_membership(bot, user_id, ch.channel_id):
-            return False, mandatory
-    return True, []
+        if await check_channel_membership(bot, user_id, ch.channel_id):
+            continue
+        if not await channel_is_accessible(bot, ch.channel_id):
+            logger.warning(
+                "Auto-disabling broken mandatory channel #%s (%s)",
+                ch.id,
+                ch.channel_id,
+            )
+            ch.is_enabled = False
+            await session.commit()
+            continue
+        pending.append(ch)
+
+    if not pending:
+        return True, []
+    return False, pending
 
 
 async def _menu_kb(session: AsyncSession, texts: TextService, user_id: int, user=None):
