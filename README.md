@@ -81,6 +81,25 @@ cd /opt/tokenbot && sudo bash scripts/add-domain.sh
 
 Webhook و WebApp URL خودکار ساخته می‌شوند.
 
+## آپدیت روی سرور (بعد از fix باگ)
+
+روی ویندوز: تغییر کد → `git push`  
+روی سرور:
+
+```bash
+cd /opt/tokenbot
+bash scripts/update-server.sh          # فقط backend (پیش‌فرض)
+bash scripts/update-server.sh miniapp  # Mini App
+bash scripts/update-server.sh all      # همه سرویس‌ها
+```
+
+`.env` و دیتابیس دست نخورده می‌مانند.
+
+```bash
+NO_CACHE=1 bash scripts/update-server.sh backend   # build از صفر
+SKIP_BUILD=1 bash scripts/update-server.sh backend # فقط restart
+```
+
 ## نصب دستی (Docker)
 
 ```bash
