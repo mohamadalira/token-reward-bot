@@ -75,7 +75,9 @@ def admin_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=i18n.t("btn_dashboard")), KeyboardButton(text=i18n.t("btn_settings"))],
-            [KeyboardButton(text=i18n.t("btn_channels")), KeyboardButton(text=i18n.t("btn_configs"))],
+            [KeyboardButton(text=i18n.t("btn_texts_admin")), KeyboardButton(text=i18n.t("btn_payment_settings"))],
+            [KeyboardButton(text=i18n.t("btn_categories")), KeyboardButton(text=i18n.t("btn_add_config_interactive"))],
+            [KeyboardButton(text=i18n.t("btn_channels")), KeyboardButton(text=i18n.t("btn_add_sponsor_channel"))],
             [KeyboardButton(text=i18n.t("btn_sponsors_admin")), KeyboardButton(text=i18n.t("btn_users"))],
             [KeyboardButton(text=i18n.t("btn_broadcast")), KeyboardButton(text=i18n.t("btn_finance"))],
             [KeyboardButton(text=i18n.t("btn_payments"))],

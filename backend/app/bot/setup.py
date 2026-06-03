@@ -7,6 +7,10 @@ from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import ErrorEvent
 
 from app.bot.handlers.admin.panel import router as admin_router
+from app.bot.handlers.admin.payments_admin import router as admin_payments_router
+from app.bot.handlers.admin.shop_admin import router as admin_shop_router
+from app.bot.handlers.admin.sponsor_channels_admin import router as admin_sponsor_ch_router
+from app.bot.handlers.admin.texts_admin import router as admin_texts_router
 from app.bot.handlers.sponsor.panel import router as sponsor_router
 from app.bot.handlers.user.start import router as user_router
 from app.bot.middlewares.base import AntiSpamMiddleware, DatabaseMiddleware, RateLimitMiddleware
@@ -30,6 +34,10 @@ def create_bot() -> tuple[Bot, Dispatcher]:
     dp.message.middleware(RateLimitMiddleware())
 
     dp.include_router(admin_router)
+    dp.include_router(admin_shop_router)
+    dp.include_router(admin_texts_router)
+    dp.include_router(admin_payments_router)
+    dp.include_router(admin_sponsor_ch_router)
     dp.include_router(sponsor_router)
     dp.include_router(user_router)
 

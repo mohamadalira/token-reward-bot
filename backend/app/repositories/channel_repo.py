@@ -10,6 +10,7 @@ from app.models import (
     CampaignStatus,
     CampaignView,
     ConfigProduct,
+    ConfigType,
     MandatoryChannel,
     Payment,
     PaymentStatus,
@@ -86,12 +87,45 @@ class ShopRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def get_products(self, active_only: bool = True) -> list[ConfigProduct]:
+    async def get_products(
+        self, active_only: bool = True, category_id: Optional[int] = None
+    ) -> list[ConfigProduct]:
         stmt = select(ConfigProduct)
+        if category_id is not None:
+            stmt = stmt.where(ConfigProduct.category_id == category_id)
         if active_only:
             stmt = stmt.where(ConfigProduct.is_active == True, ConfigProduct.stock > 0)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def bulk_create_from_lines(
+        self,
+        category_id: int,
+        category_name: str,
+        token_cost: int,
+        lines: list[str],
+        config_type: ConfigType = ConfigType.V2RAY,
+    ) -> list[ConfigProduct]:
+        created = []
+        idx = 0
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            idx += 1
+            product = ConfigProduct(
+                name=f"{category_name} #{idx}",
+                token_cost=token_cost,
+                category=category_name,
+                category_id=category_id,
+                config_type=config_type,
+                config_data=line,
+                stock=1,
+            )
+            self.session.add(product)
+            created.append(product)
+        await self.session.flush()
+        return created
 
     async def get_product(self, product_id: int) -> Optional[ConfigProduct]:
         result = await self.session.execute(
@@ -150,7 +184,9 @@ class SponsorRepository:
 
     async def get_by_user_id(self, user_id: int) -> Optional[Sponsor]:
         result = await self.session.execute(
-            select(Sponsor).where(Sponsor.user_id == user_id)
+            select(Sponsor)
+            .options(selectinload(Sponsor.campaigns))
+            .where(Sponsor.user_id == user_id)
         )
         return result.scalar_one_or_none()
 

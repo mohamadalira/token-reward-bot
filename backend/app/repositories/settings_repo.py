@@ -30,6 +30,10 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "manual_payment_instructions": "بعد از پرداخت رسید رو بفرست",
     "referral_mode_enabled": "true",
     "task_mode_enabled": "true",
+    "sponsor_mode_enabled": "true",
+    "min_token_purchase": "1000",
+    "max_token_purchase": "1000000",
+    "plisio_api_key": "",
 }
 
 
@@ -82,7 +86,10 @@ class SettingsRepository:
         return merged
 
     async def init_defaults(self) -> None:
-        for key, value in DEFAULT_SETTINGS.items():
+        from app.locales import fa
+
+        merged = {**DEFAULT_SETTINGS, **fa.MESSAGES}
+        for key, value in merged.items():
             result = await self.session.execute(
                 select(Setting).where(Setting.key == key)
             )

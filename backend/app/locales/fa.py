@@ -20,7 +20,7 @@ MESSAGES = {
     "btn_earn": "💰 کسب توکن",
     "btn_shop": "🛒 خرید کانفیگ",
     "btn_my_configs": "📦 کانفیگ‌های من",
-    "btn_leaderboard": "🏆 لیدربورد",
+    "btn_sponsor": "💎 اسپانسر شدن",
     "btn_support": "💬 پشتیبانی",
     "btn_rules": "📋 قوانین",
     "btn_back": "🔙 بازگشت",
@@ -43,6 +43,14 @@ MESSAGES = {
     "earn_menu_tasks": "📢 تسک‌های اسپانسر",
     "earn_choose_mode": "چطور می‌خوای توکن بگیری؟ 👇",
     "no_tasks": "فعلاً تسکی نیست 😕\nبعداً سر بزن.",
+    "task_channel_card": (
+        "📢 {title}\n\n"
+        "{description}\n\n"
+        "💰 توکن دریافتی: +{reward} توکن"
+    ),
+    "task_no_description": "برای عضویت در این کانال توکن بگیر 🎁",
+    "btn_view_channel": "🔗 مشاهده کانال",
+    "btn_joined": "✅ عضو شدم",
     "task_card": "📢 {title}\n💰 پاداش: {reward} توکن",
     "btn_join_channel": "🔗 عضویت",
     "btn_verify": "✅ تایید",
@@ -59,6 +67,9 @@ MESSAGES = {
     ),
     # Shop
     "shop_empty": "فعلاً محصولی نیست 😕",
+    "shop_pick_category": "📂 یه دسته انتخاب کن 👇",
+    "shop_pick_product": "🛒 محصولات موجود:",
+    "shop_category_header": "📂 {name}\n\n{description}\n\nمحصول رو انتخاب کن 👇",
     "shop_product": (
         "📦 {name}\n\n"
         "{description}\n\n"
@@ -69,6 +80,8 @@ MESSAGES = {
     "purchase_success": "🎉 خریدت با موفقیت انجام شد\n📦 کانفیگ برات ارسال شد",
     "purchase_confirm": "مطمئنی می‌خوای {name} رو با {price} توکن بخری؟",
     "out_of_stock": "موجودی تموم شده 😕",
+    "no_purchases": "هنوز خریدی نداری 😕",
+    "my_configs_header": "📦 کانفیگ‌های خریداری‌شده:",
     "btn_buy": "🛒 خرید",
     "btn_confirm": "✅ تایید",
     # Leaderboard
@@ -78,6 +91,12 @@ MESSAGES = {
     "support": "💬 پشتیبانی:\n@{username}",
     "rules": "📋 قوانین:\n{rules}",
     # Sponsor
+    # Sponsor intro
+    "sponsor_intro": (
+        "💎 اسپانسر شدن\n\n"
+        "با اسپانسر شدن می‌تونی کانال خودت رو تبلیغ کنی و "
+        "با هر عضو جدید توکن هدیه بدی 🚀"
+    ),
     "sponsor_menu": "📢 پنل اسپانسر 👇",
     "btn_become_sponsor": "🚀 اسپانسر شو",
     "btn_my_campaigns": "📊 کمپین‌های من",
@@ -89,11 +108,11 @@ MESSAGES = {
     "campaign_created": "کمپین ساخته شد ✅\nبرای فعال‌سازی پرداخت کن.",
     "campaign_exhausted": "⚠️ موجودی کمپینت تموم شد\nبرای ادامه تبلیغ کمپین رو شارژ کن.",
     "campaign_join_notify": (
-        "👤 عضو جدید!\n\n"
-        "🆔 آیدی: {user_id}\n"
-        "👤 نام: {username}\n"
-        "💰 پاداش: {reward} توکن\n"
-        "💳 موجودی: {balance} توکن"
+        "👤 عضو جدید جذب شد\n\n"
+        "🆔 شناسه کاربر: {user_id}\n"
+        "🕐 زمان عضویت: {joined_at}\n"
+        "💰 توکن پرداخت شده: {reward}\n"
+        "💳 موجودی باقی‌مانده: {balance} توکن"
     ),
     "payment_confirmed": "✅ پرداخت تایید شد\nکمپینت فعال شد و تبلیغت از الان نمایش داده میشه.",
     "wallet_info": (
@@ -117,6 +136,13 @@ MESSAGES = {
     "btn_broadcast": "📨 ارسال همگانی",
     "btn_finance": "💰 مالی",
     "btn_payments": "💳 پرداخت‌ها",
+    "btn_texts_admin": "📝 مدیریت متن‌ها",
+    "btn_categories": "📂 دسته‌بندی فروشگاه",
+    "btn_add_config_interactive": "➕ افزودن کانفیگ",
+    "btn_payment_settings": "💳 مدیریت پرداخت‌ها",
+    "btn_add_sponsor_channel": "➕ کانال اسپانسری",
+    "pay_manual_card": "💳 کارت به کارت",
+    "pay_crypto": "₿ کریپتو",
     "dashboard": (
         "📊 آمار کلی\n\n"
         "👥 کل کاربران: {total_users}\n"

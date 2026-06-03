@@ -176,6 +176,7 @@ class SponsorChannel(Base):
     channel_id: Mapped[str] = mapped_column(String(100), unique=True)
     channel_username: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     title: Mapped[str] = mapped_column(String(255))
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     invite_link: Mapped[str] = mapped_column(String(500))
     reward_amount: Mapped[int] = mapped_column(Integer, default=0)
     is_admin_managed: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -195,6 +196,25 @@ class SponsorChannel(Base):
     )
 
 
+class ShopCategory(Base):
+    __tablename__ = "shop_categories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255))
+    slug: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    default_token_cost: Mapped[int] = mapped_column(Integer, default=0)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    products: Mapped[list["ConfigProduct"]] = relationship(
+        "ConfigProduct", back_populates="shop_category"
+    )
+
+
 class ConfigProduct(Base):
     __tablename__ = "config_products"
 
@@ -203,6 +223,9 @@ class ConfigProduct(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     token_cost: Mapped[int] = mapped_column(Integer)
     category: Mapped[str] = mapped_column(String(100), default="general")
+    category_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("shop_categories.id"), nullable=True, index=True
+    )
     config_type: Mapped[ConfigType] = mapped_column(Enum(ConfigType))
     config_data: Mapped[str] = mapped_column(Text)
     stock: Mapped[int] = mapped_column(Integer, default=0)
@@ -214,6 +237,9 @@ class ConfigProduct(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
+    shop_category: Mapped[Optional["ShopCategory"]] = relationship(
+        "ShopCategory", back_populates="products"
+    )
     purchases: Mapped[list["Purchase"]] = relationship("Purchase", back_populates="product")
 
 

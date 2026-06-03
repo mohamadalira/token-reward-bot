@@ -1,6 +1,8 @@
 import logging
 from typing import Optional
 
+from datetime import datetime, timezone
+
 from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +16,7 @@ from app.repositories import (
     SponsorRepository,
     UserRepository,
 )
+from app.services.text_service import TextService
 from app.utils.formatters import format_date, format_number
 from app.utils.telegram_helpers import check_channel_membership
 
@@ -174,15 +177,21 @@ class TaskService:
                 sponsor = await self.sponsors.get_by_id(campaign.sponsor_id)
                 if sponsor:
                     sponsor.total_consumed += reward
+                    texts = TextService(self.session)
+                    use_persian = await self.settings.get_bool("use_persian_numbers", True)
+                    use_jalali = await self.settings.get_bool("use_jalali_dates", True)
+                    joined_at = format_date(
+                        datetime.now(timezone.utc), use_jalali, use_persian
+                    )
                     try:
                         await bot.send_message(
                             sponsor.user_id,
-                            i18n.t(
+                            await texts.t(
                                 "campaign_join_notify",
                                 user_id=user_id,
-                                username=user_id,
-                                reward=reward,
-                                balance=campaign.remaining_budget,
+                                joined_at=joined_at,
+                                reward=format_number(reward, use_persian),
+                                balance=format_number(campaign.remaining_budget, use_persian),
                             ),
                         )
                     except Exception:

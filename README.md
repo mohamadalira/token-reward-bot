@@ -8,7 +8,11 @@
 - **پنل ادمین کامل** داخل تلگرام (بدون نیاز به SSH)
 - **سیستم اسپانسر** با کیف پول، کمپین، آنalytics
 - **درگاه Plisio** (BTC, ETH, USDT و...) + پرداخت کارت به کارت
-- **فروشگاه کانفیگ** (V2Ray, VLESS, VMESS, Trojan, Shadowsocks, WireGuard, OpenVPN)
+- **فروشگاه کانفیگ** با دسته‌بندی (10GB، 20GB، …) و آپلود انبوه
+- **مدیریت متن‌ها** از پنل ادمین (بدون hardcode)
+- **منوی Inline** برای کاربران + دکمه 💎 اسپانسر شدن
+- **تسک اسپانسر** با توضیح کانال و دکمه «عضو شدم»
+- **مدیریت پرداخت** (Plisio + کارت به کارت) از ربات
 - **Mini App** با Next.js (RTL، فارسی، Dark Mode)
 - **امنیت**: Rate limiting، Anti-spam، Audit logs، Webhook signature
 - **مقیاس‌پذیری**: Redis cache، Connection pooling، Async

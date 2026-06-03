@@ -123,10 +123,30 @@ def create_api_app() -> FastAPI:
         await bot.session.close()
         return {"success": ok, "message": msg, "amount": amount}
 
+    @app.get("/api/user/shop/categories")
+    async def shop_categories(session: AsyncSession = Depends(get_session)):
+        from app.repositories.category_repo import CategoryRepository
+        cats = CategoryRepository(session)
+        categories = await cats.list_active()
+        return [
+            {
+                "id": c.id,
+                "name": c.name,
+                "slug": c.slug,
+                "description": c.description,
+                "default_token_cost": c.default_token_cost,
+            }
+            for c in categories
+        ]
+
     @app.get("/api/user/shop")
-    async def shop_products(user=Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+    async def shop_products(
+        category_id: int | None = None,
+        user=Depends(get_current_user),
+        session: AsyncSession = Depends(get_session),
+    ):
         shop = ShopRepository(session)
-        products = await shop.get_products()
+        products = await shop.get_products(category_id=category_id)
         return [
             {
                 "id": p.id,
