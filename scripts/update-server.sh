@@ -7,8 +7,8 @@ REPO="${GITHUB_REPO:-mohamadalira/token-reward-bot}"
 BRANCH="${GITHUB_BRANCH:-main}"
 TARBALL_URL="https://github.com/${REPO}/archive/refs/heads/${BRANCH}.tar.gz"
 
-log()  { echo -e "\033[1;32m[INFO]\033[0m  $*"; }
-warn() { echo -e "\033[1;33m[WARN]\033[0m  $*"; }
+log()  { echo -e "\033[1;32m[INFO]\033[0m  $*" >&2; }
+warn() { echo -e "\033[1;33m[WARN]\033[0m  $*" >&2; }
 err()  { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; }
 
 usage() {
